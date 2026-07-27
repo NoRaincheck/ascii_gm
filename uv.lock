@@ -16,6 +16,7 @@ name = "ascii-gm"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "colorama" },
     { name = "pillow" },
     { name = "pydantic" },
     { name = "tqdm" },
@@ -30,6 +31,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "colorama", specifier = ">=0.4.6" },
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "pydantic", specifier = ">=2.9.2" },
     { name = "tqdm", specifier = ">=4.66.5" },
