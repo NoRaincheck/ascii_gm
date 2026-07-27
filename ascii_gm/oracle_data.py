@@ -159,9 +159,9 @@ gen_data["vice"] = [
 
 gen_data["card"] = [
     """
-+────────────────────+
+┌────────────────────┐
 │low:{low_odds}  d4 {d4}  d12 {d12}│
-│---:{even_odds}  d6 {d6}  d20 {d20}│
+├───:{even_odds}  d6 {d6}  d20 {d20}│
 │hi :{hi_odds}  d8 {d8}  d00 {d00}│
 │                    │
 │{action} {detail} {topic}│
@@ -176,6 +176,6 @@ gen_data["card"] = [
 │                    │
 │VT:{virtue}│
 │VC:{vice}│
-+────────────────────+
+└────────────────────┘
 """.strip()
 ]
