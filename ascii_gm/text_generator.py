@@ -1,5 +1,6 @@
-import re
 import random
+import re
+
 # based on https://donjon.bin.sh/code/random/
 
 
@@ -45,8 +46,7 @@ def scale_table(list):
     len = 0
     for key in list:
         r = key_range(key)
-        if r[1] > len:
-            len = r[1]
+        len = max(len, r[1])
     return len
 
 

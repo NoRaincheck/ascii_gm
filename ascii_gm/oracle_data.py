@@ -1,11 +1,8 @@
-from pathlib import Path
 import json
 import random
+from pathlib import Path
 
-
-oracles = json.loads(
-    Path(__file__).parent.joinpath("ironsworn_oracles.json").open("r").read()
-)
+oracles = json.loads(Path(__file__).parent.joinpath("ironsworn_oracles.json").open("r").read())
 
 
 def random_shuffle(val):
@@ -25,7 +22,7 @@ def dice_range(num):
 
 
 def split_list(a_list, size):
-    chunked_list = list()
+    chunked_list = []
     chunk_size = len(a_list) // size
     for i in range(0, len(a_list), chunk_size):
         chunked_list.append(a_list[i : i + chunk_size])
@@ -50,9 +47,7 @@ gen_data["d20"] = [x.zfill(2) for x in dice_range(20)]
 gen_data["d00"] = [str(num).zfill(2) for num in range(100)]
 
 gen_data["action"] = [x.ljust(6, " ") for x in get_items("Action") if len(x) <= 6]
-gen_data["detail"] = [
-    x.ljust(6, " ") for x in get_items("Location Descriptors") if len(x) <= 6
-]
+gen_data["detail"] = [x.ljust(6, " ") for x in get_items("Location Descriptors") if len(x) <= 6]
 gen_data["topic"] = [x.ljust(6, " ") for x in get_items("Theme") if len(x) <= 6]
 
 
@@ -120,9 +115,7 @@ gen_data["focus"] = [
 
 
 gen_data["name"] = [
-    ", ".join(x).ljust(17, " ")
-    for x in zip(*split_list(get_items("Ironlander Names"), 3))
-    if len(", ".join(x)) <= 17
+    ", ".join(x).ljust(17, " ") for x in zip(*split_list(get_items("Ironlander Names"), 3)) if len(", ".join(x)) <= 17
 ]
 gen_data["job"] = [
     ", ".join(x).ljust(17, " ")

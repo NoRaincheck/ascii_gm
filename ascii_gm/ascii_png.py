@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
 base_path = Path(__file__).parent

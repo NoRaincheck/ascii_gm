@@ -1,8 +1,8 @@
-from ascii_gm.text_generator import generate_text
-from ascii_gm.oracle_data import gen_data
-from ascii_gm.ascii_png import create_card
 from tqdm import tqdm
 
+from ascii_gm.ascii_png import create_card
+from ascii_gm.oracle_data import gen_data
+from ascii_gm.text_generator import generate_text
 
 for idx in tqdm(range(100)):
     idx_str = str(idx).zfill(3)
