@@ -26,24 +26,24 @@ print(card_text)
 ```
 
 ```
-+────────────────────+
-│low:N   d4 1  d12 09│
-│---:N   d6 5  d20 11│
-│hi :Y!  d8 7  d00 62│
+┌────────────────────┐
+│low:Y   d4 2  d12 03│
+├───:N   d6 1  d20 05│
+│hi :N   d8 3  d00 21│
 │                    │
-│Risk   Cold   Debt  │
+│Scheme Empty  Prize │
 │                    │
-│OB:Remove a threat  │
+│OB:Recover valuable │
 │AD:Guardians        │
-│EV:Seek, History    │
+│EV:Move, Allies     │
 │                    │
-│NM:Del, Kova, Kara  │
-│JB:Leader, Timid    │
-│GL:Gain knowledge   │
+│NM:Sayer, Kiah, Fara│
+│JB:Sailor, Honest   │
+│GL:Seek a truth     │
 │                    │
 │VT:Disciplined      │
-│VC:Rude             │
-+────────────────────+
+│VC:Vain             │
+└────────────────────┘
 ```
 
 Example output
@@ -55,7 +55,7 @@ Example output
 **Likely Odds**
 
 * `low`: Likely Odds (Likely) 
-* `---`: Likely Odds (Even/50:50)
+* `───`: Likely Odds (Even/50:50)
 * `hi`: Likely Odds (Unlikely)
 
 With allowable values being `Y` (Yes) `N` (No) with modifiers `!` (and...) and `?` (but...)
