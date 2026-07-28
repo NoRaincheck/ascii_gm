@@ -45,7 +45,7 @@ def create_card(
                 color = get_field_color(li, ci, card_lines, PNG_PALETTE)
                 if color is not None:
                     draw.rectangle(
-                        (x - padding, y, x + char_width + padding, y + char_height),
+                        (x - padding, y, x + char_width + padding - 1, y + char_height - 1),
                         fill=color,
                     )
             x += char_width
@@ -61,4 +61,42 @@ def create_card(
 
         y += char_height
 
+    _fill_gaps(image, text_color, bg_color, char_width, char_height)
+
     image.save(output_file)
+
+
+def _fill_gaps(image, text_color, bg_color, char_width, char_height):
+    pix = image.load()
+    w, h = image.size
+    bg = bg_color + (255,)
+
+    def is_non_bg(p):
+        return p[:3] != bg[:3] and p[3] != 0
+
+    MAX_GAP = 3
+
+    for y in range(h):
+        x = 0
+        while x < w:
+            if pix[x, y] == bg:
+                gap_start = x
+                while x < w and pix[x, y] == bg:
+                    x += 1
+                gap_end = x
+                gap_len = gap_end - gap_start
+                if gap_len <= MAX_GAP:
+                    left_ok = gap_start > 0 and is_non_bg(pix[gap_start - 1, y])
+                    right_ok = gap_end < w and is_non_bg(pix[gap_end, y])
+                    if left_ok and right_ok:
+                        left_color = pix[gap_start - 1, y]
+                        right_color = pix[gap_end, y]
+                        for gx in range(gap_start, gap_end):
+                            t = (gx - gap_start) / max(gap_len - 1, 1)
+                            blended = tuple(
+                                int(left_color[c] * (1 - t) + right_color[c] * t)
+                                for c in range(4)
+                            )
+                            pix[gx, y] = blended
+            else:
+                x += 1
