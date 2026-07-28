@@ -2,8 +2,7 @@ import { generateCard } from "../lib/card.ts";
 import { setOracles } from "../lib/oracle_data.ts";
 import { parseSpritesheet, renderCardToCanvas } from "../lib/spritesheet.ts";
 
-const canvas = document.getElementById("card-canvas");
-const ctx = canvas.getContext("2d");
+const cardContainer = document.getElementById("card-container");
 const generateBtn = document.getElementById("generate-btn");
 const themeSelect = document.getElementById("theme-select");
 const modeToggle = document.getElementById("mode-toggle");
@@ -12,14 +11,16 @@ const modeLabel = document.getElementById("mode-label");
 let currentCard = "";
 let imageMode = true;
 let spritesheetLoaded = false;
+let cards = []; // array of { cardText, theme }
 
 async function init() {
   await loadOraclesJSON();
   await loadSpritesheet();
   newCard();
   generateBtn.addEventListener("click", newCard);
-  themeSelect.addEventListener("change", render);
+  themeSelect.addEventListener("change", renderAllCards);
   modeToggle.addEventListener("click", toggleMode);
+  document.addEventListener("keydown", handleKeyDown);
 }
 
 async function loadOraclesJSON() {
@@ -44,19 +45,61 @@ async function loadSpritesheet() {
 
 function newCard() {
   currentCard = generateCard();
-  render();
+  cards.push({ cardText: currentCard, theme: themeSelect.value });
+  renderAllCards();
 }
 
-function render() {
-  const theme = themeSelect.value;
-  renderCardToCanvas(ctx, currentCard, theme, imageMode);
+function renderAllCards() {
+  // Clear existing card elements
+  cardContainer.innerHTML = "";
+  const grid = document.createElement("div");
+  grid.className = "card-grid";
+  cardContainer.appendChild(grid);
+
+  for (const cardData of cards) {
+    const canvas = document.createElement("canvas");
+    canvas.className = "card-canvas";
+    const ctx = canvas.getContext("2d");
+    renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode);
+    grid.appendChild(canvas);
+  }
 }
 
 function toggleMode() {
   imageMode = !imageMode;
   modeLabel.textContent = imageMode ? "Image Mode" : "Canvas Mode";
   modeToggle.textContent = imageMode ? "Switch to Canvas Mode" : "Switch to Image Mode";
-  render();
+  renderAllCards();
+}
+
+function handleKeyDown(e) {
+  // Don't capture keys when user is typing in an input
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
+
+  switch (e.key) {
+    case "Enter":
+    case "ArrowLeft":
+    case "ArrowRight":
+      e.preventDefault();
+      newCard();
+      break;
+    case "ArrowUp":
+      e.preventDefault();
+      cycleTheme();
+      break;
+    case "ArrowDown":
+      e.preventDefault();
+      cycleTheme();
+      break;
+  }
+}
+
+function cycleTheme() {
+  const themes = ["macchiato", "latte"];
+  const currentIdx = themes.indexOf(themeSelect.value);
+  const nextIdx = themeSelect.value === "macchiato" ? 1 : 0;
+  themeSelect.value = themes[nextIdx];
+  renderAllCards();
 }
 
 init();

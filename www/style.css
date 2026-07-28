@@ -75,13 +75,25 @@ button:hover, select:hover {
 #card-container {
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   min-height: 400px;
+  width: 100%;
 }
 
-#card-canvas {
-  image-rendering: pixelated;
+.card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+  align-items: flex-start;
   max-width: 100%;
+}
+
+.card-canvas {
+  image-rendering: pixelated;
+  width: 360px;
+  height: auto;
   border-radius: 8px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
 }

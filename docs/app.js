@@ -1,3 +1,21 @@
+// lib/rng.ts
+var _seed = null;
+var _state = 0;
+function mulberry32(state) {
+  state |= 0;
+  state = state + 1831565813 | 0;
+  let t = Math.imul(state ^ state >>> 15, 1 | state);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+function random() {
+  if (_seed !== null) {
+    _state = _state + 1831565813 | 0;
+    return mulberry32(_state);
+  }
+  return Math.random();
+}
+
 // lib/text_generator.ts
 function keyRange(key) {
   const m00 = key.match(/^(\d+)-00$/);
@@ -16,12 +34,12 @@ function scaleTable(table) {
   return max;
 }
 function selectFromArray(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(random() * arr.length)];
 }
 function selectFromTable(table) {
   const len = scaleTable(table);
   if (!len) return "";
-  const idx = Math.floor(Math.random() * len) + 1;
+  const idx = Math.floor(random() * len) + 1;
   for (const key of Object.keys(table)) {
     const r = keyRange(key);
     if (idx >= r[0] && idx <= r[1]) return table[key];
@@ -60,7 +78,7 @@ function setOracles(data) {
 function randomShuffle(val) {
   const arr = [...val];
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
@@ -363,13 +381,13 @@ CHAR_MAP["\u251C"] = 195;
 CHAR_MAP["\u2524"] = 180;
 CHAR_MAP["\u252C"] = 194;
 CHAR_MAP["\u2534"] = 193;
-function parseSpritesheet(imageSource, ctx2) {
+function parseSpritesheet(imageSource, ctx) {
   const cols = Math.floor(imageSource.width / CELL_X);
   const rows = Math.ceil(imageSource.height / CELL_Y);
   const glyphs = [];
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      ctx2.drawImage(
+      ctx.drawImage(
         imageSource,
         col * CELL_X + 1,
         row * CELL_Y,
@@ -380,14 +398,14 @@ function parseSpritesheet(imageSource, ctx2) {
         GLYPH_W,
         GLYPH_H
       );
-      const data = ctx2.getImageData(0, 0, GLYPH_W, GLYPH_H);
+      const data = ctx.getImageData(0, 0, GLYPH_W, GLYPH_H);
       glyphs.push(data);
     }
   }
   glyphData = glyphs;
   return glyphs;
 }
-function renderCardToCanvas(ctx2, cardText, theme = "macchiato", imageMode2 = true) {
+function renderCardToCanvas(ctx, cardText, theme = "macchiato", imageMode2 = true) {
   if (!glyphData && imageMode2) {
     throw new Error("Spritesheet not loaded. Call parseSpritesheet first.");
   }
@@ -401,16 +419,16 @@ function renderCardToCanvas(ctx2, cardText, theme = "macchiato", imageMode2 = tr
   const numCharsHigh = cardLines.length;
   const canvasWidth = numCharsWide * charWidth;
   const canvasHeight = numCharsHigh * charHeight;
-  ctx2.canvas.width = canvasWidth;
-  ctx2.canvas.height = canvasHeight;
+  ctx.canvas.width = canvasWidth;
+  ctx.canvas.height = canvasHeight;
   if (imageMode2) {
-    renderImageMode(ctx2, cardLines, templateLines, palette, text, bg, highlightText, charWidth, charHeight);
+    renderImageMode(ctx, cardLines, templateLines, palette, text, bg, highlightText, charWidth, charHeight);
   } else {
-    renderCanvasMode(ctx2, cardLines, templateLines, palette, text, bg, highlightText, charWidth, charHeight);
+    renderCanvasMode(ctx, cardLines, templateLines, palette, text, bg, highlightText, charWidth, charHeight);
   }
 }
-function renderImageMode(ctx2, cardLines, templateLines, palette, textColor, bgColor, highlightTextColor, charWidth, charHeight) {
-  const imageData = ctx2.createImageData(ctx2.canvas.width, ctx2.canvas.height);
+function renderImageMode(ctx, cardLines, templateLines, palette, textColor, bgColor, highlightTextColor, charWidth, charHeight) {
+  const imageData = ctx.createImageData(ctx.canvas.width, ctx.canvas.height);
   fillBg(imageData, bgColor);
   for (let li = 0; li < cardLines.length; li++) {
     const cardLine = cardLines[li];
@@ -442,7 +460,7 @@ function renderImageMode(ctx2, cardLines, templateLines, palette, textColor, bgC
       for (let py = 0; py < charHeight; py++) {
         for (let px = 0; px < charWidth; px++) {
           const si = (py * charWidth + px) * 4;
-          const di = ((dy + py) * ctx2.canvas.width + (dx + px)) * 4;
+          const di = ((dy + py) * ctx.canvas.width + (dx + px)) * 4;
           const glyphPixel = glyph.data[si];
           if (glyphPixel > 127) {
             imageData.data[di] = fg[0];
@@ -459,14 +477,14 @@ function renderImageMode(ctx2, cardLines, templateLines, palette, textColor, bgC
       }
     }
   }
-  ctx2.putImageData(imageData, 0, 0);
+  ctx.putImageData(imageData, 0, 0);
 }
-function renderCanvasMode(ctx2, cardLines, templateLines, palette, textColor, bgColor, highlightTextColor, charWidth, charHeight) {
-  ctx2.fillStyle = rgbToCss(bgColor);
-  ctx2.fillRect(0, 0, ctx2.canvas.width, ctx2.canvas.height);
+function renderCanvasMode(ctx, cardLines, templateLines, palette, textColor, bgColor, highlightTextColor, charWidth, charHeight) {
+  ctx.fillStyle = rgbToCss(bgColor);
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   const fontSize = Math.min(charWidth, charHeight) + 4;
-  ctx2.font = `${fontSize}px monospace`;
-  ctx2.textBaseline = "top";
+  ctx.font = `${fontSize}px monospace`;
+  ctx.textBaseline = "top";
   for (let li = 0; li < cardLines.length; li++) {
     const cardLine = cardLines[li];
     const templLine = templateLines[li] ?? "";
@@ -479,16 +497,16 @@ function renderCanvasMode(ctx2, cardLines, templateLines, palette, textColor, bg
       if (isHighlight) {
         const fieldColor = getFieldColor(li, ci, cardLines, palette);
         if (fieldColor) {
-          ctx2.fillStyle = rgbToCss(fieldColor);
-          ctx2.fillRect(x, y, charWidth, charHeight);
-          ctx2.fillStyle = rgbToCss(highlightTextColor);
+          ctx.fillStyle = rgbToCss(fieldColor);
+          ctx.fillRect(x, y, charWidth, charHeight);
+          ctx.fillStyle = rgbToCss(highlightTextColor);
         } else {
-          ctx2.fillStyle = rgbToCss(textColor);
+          ctx.fillStyle = rgbToCss(textColor);
         }
       } else {
-        ctx2.fillStyle = rgbToCss(textColor);
+        ctx.fillStyle = rgbToCss(textColor);
       }
-      ctx2.fillText(ch, x, y);
+      ctx.fillText(ch, x, y);
     }
   }
 }
@@ -505,8 +523,7 @@ function rgbToCss([r, g, b]) {
 }
 
 // www/app.js
-var canvas = document.getElementById("card-canvas");
-var ctx = canvas.getContext("2d");
+var cardContainer = document.getElementById("card-container");
 var generateBtn = document.getElementById("generate-btn");
 var themeSelect = document.getElementById("theme-select");
 var modeToggle = document.getElementById("mode-toggle");
@@ -514,13 +531,15 @@ var modeLabel = document.getElementById("mode-label");
 var currentCard = "";
 var imageMode = true;
 var spritesheetLoaded = false;
+var cards = [];
 async function init() {
   await loadOraclesJSON();
   await loadSpritesheet();
   newCard();
   generateBtn.addEventListener("click", newCard);
-  themeSelect.addEventListener("change", render);
+  themeSelect.addEventListener("change", renderAllCards);
   modeToggle.addEventListener("click", toggleMode);
+  document.addEventListener("keydown", handleKeyDown);
 }
 async function loadOraclesJSON() {
   const resp = await fetch("ironsworn_oracles.json");
@@ -541,16 +560,52 @@ async function loadSpritesheet() {
 }
 function newCard() {
   currentCard = generateCard();
-  render();
+  cards.push({ cardText: currentCard, theme: themeSelect.value });
+  renderAllCards();
 }
-function render() {
-  const theme = themeSelect.value;
-  renderCardToCanvas(ctx, currentCard, theme, imageMode);
+function renderAllCards() {
+  cardContainer.innerHTML = "";
+  const grid = document.createElement("div");
+  grid.className = "card-grid";
+  cardContainer.appendChild(grid);
+  for (const cardData of cards) {
+    const canvas = document.createElement("canvas");
+    canvas.className = "card-canvas";
+    const ctx = canvas.getContext("2d");
+    renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode);
+    grid.appendChild(canvas);
+  }
 }
 function toggleMode() {
   imageMode = !imageMode;
   modeLabel.textContent = imageMode ? "Image Mode" : "Canvas Mode";
   modeToggle.textContent = imageMode ? "Switch to Canvas Mode" : "Switch to Image Mode";
-  render();
+  renderAllCards();
+}
+function handleKeyDown(e) {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
+  switch (e.key) {
+    case "Enter":
+    case "ArrowLeft":
+    case "ArrowRight":
+      e.preventDefault();
+      newCard();
+      break;
+    case "ArrowUp":
+      e.preventDefault();
+      cycleTheme();
+      break;
+    case "ArrowDown":
+      e.preventDefault();
+      cycleTheme();
+      break;
+  }
+}
+function cycleTheme() {
+  const themes = ["macchiato", "latte"];
+  const currentIdx = themes.indexOf(themeSelect.value);
+  const nextIdx = themeSelect.value === "macchiato" ? 1 : 0;
+  themeSelect.value = themes[nextIdx];
+  renderAllCards();
 }
 init();
