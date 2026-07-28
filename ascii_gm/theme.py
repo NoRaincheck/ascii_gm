@@ -4,16 +4,65 @@ from colorama import Fore, Style
 
 TEMPLATE_PATH = Path(__file__).parent / "template.txt"
 
-PNG_PALETTE = {
-    "positive": (65, 105, 225),
-    "negative": (255, 140, 0),
-    "neutral": (169, 169, 169),
+# Catppuccin Latte palette - https://catppuccin.com/palette/
+# Style guide: https://github.com/catppuccin/catppuccin/blob/main/docs/style-guide.md
+# positive = Green (Success) | negative = Red (Errors) | neutral = Text (Body Copy)
+
+LATTE = {
+    "rosewater": "#f2d5cf",
+    "flamingo": "#dd7878",
+    "pink": "#ea76cb",
+    "mauve": "#8839ef",
+    "red": "#d20f39",
+    "maroon": "#e64553",
+    "peach": "#fe640b",
+    "yellow": "#df8e1d",
+    "green": "#40a02b",
+    "teal": "#179299",
+    "sky": "#04a5e5",
+    "sapphire": "#209fb5",
+    "blue": "#8caaee",
+    "lavender": "#7287fd",
+    "text": "#4c4f69",
+    "subtext1": "#5c5f77",
+    "subtext0": "#6c6f85",
+    "overlay1": "#7c7f93",
+    "overlay0": "#8c8fa1",
+    "surface2": "#9ca0b0",
+    "surface1": "#acb0c7",
+    "surface0": "#ccd0da",
+    "base": "#eff1f5",
+    "mantle": "#e6e9ef",
+    "crust": "#dce0e8",
 }
 
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Convert hex color string to RGB tuple."""
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+
+
+# PNG palette: positive=Blue, negative=Rosewater, neutral=Pink
+PNG_PALETTE = {
+    "positive": _hex_to_rgb(LATTE["blue"]),
+    "negative": _hex_to_rgb(LATTE["rosewater"]),
+    "neutral": _hex_to_rgb(LATTE["surface0"]),
+}
+
+# Terminal palette using ANSI RGB escape codes for Catppuccin Latte colors
+# positive=Blue, negative=Rosewater, neutral=Pink
+
+
+def _ansi_rgb(r: int, g: int, b: int) -> str:
+    """Create ANSI 24-bit RGB escape code."""
+    return f"\033[38;2;{r};{g};{b}m"
+
+
 TERMINAL_PALETTE = {
-    "positive": Fore.MAGENTA,
-    "negative": Fore.CYAN,
-    "neutral": Fore.LIGHTWHITE_EX,
+    "positive": _ansi_rgb(*_hex_to_rgb(LATTE["blue"])),
+    "negative": _ansi_rgb(*_hex_to_rgb(LATTE["rosewater"])),
+    "neutral": _ansi_rgb(*_hex_to_rgb(LATTE["crust"])),
 }
 
 FIELD_CATEGORY = {
