@@ -573,13 +573,13 @@ function renderAllCards() {
   const grid = document.createElement("div");
   grid.className = "card-grid";
   cardContainer.appendChild(grid);
-  for (const cardData of cards) {
-    const canvas = document.createElement("canvas");
-    canvas.className = "card-canvas";
-    const ctx = canvas.getContext("2d");
-    renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode);
-    grid.appendChild(canvas);
-  }
+  const latest = cards[cards.length - 1];
+  if (!latest) return;
+  const canvas = document.createElement("canvas");
+  canvas.className = "card-canvas";
+  const ctx = canvas.getContext("2d");
+  renderCardToCanvas(ctx, latest.cardText, latest.theme, imageMode);
+  grid.appendChild(canvas);
 }
 function toggleMode() {
   imageMode = !imageMode;
