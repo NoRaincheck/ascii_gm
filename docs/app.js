@@ -628,10 +628,12 @@ function handleKeyDown(e) {
     case 'ArrowUp':
       e.preventDefault();
       cycleTheme();
+      newCard();
       break;
     case 'ArrowDown':
       e.preventDefault();
       cycleTheme();
+      newCard();
       break;
   }
 }
