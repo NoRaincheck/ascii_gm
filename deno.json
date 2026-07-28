@@ -10,5 +10,11 @@
   "imports": {
     "canvas": "npm:canvas@3.2.3",
     "esbuild": "npm:esbuild@^0.24.0"
+  },
+  "fmt": {
+    "indentWidth": 2,
+    "lineWidth": 120,
+    "singleQuote": true,
+    "useTabs": false
   }
 }

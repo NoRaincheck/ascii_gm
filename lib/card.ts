@@ -1,5 +1,5 @@
-import { generateText } from "./text_generator.ts";
-import { buildGenData } from "./oracle_data.ts";
+import { generateText } from './text_generator.ts';
+import { buildGenData } from './oracle_data.ts';
 
 let _genData: Record<string, unknown> | null = null;
 
@@ -16,5 +16,5 @@ export function resetGenData(): void {
 
 export function generateCard(): string {
   const genData = getGenData();
-  return generateText("card", genData) ?? "";
+  return generateText('card', genData) ?? '';
 }

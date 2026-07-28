@@ -1,6 +1,6 @@
 # ASCII Game Master
 
-A riff on the game master apprentice, but in ascii mode. 
+A riff on the game master apprentice, but in ascii mode.
 
 ## Quick Start
 
@@ -56,9 +56,9 @@ Example output
 
 **Likely Odds**
 
-* `low`: Likely Odds (Likely) 
-* `───`: Likely Odds (Even/50:50)
-* `hi`: Likely Odds (Unlikely)
+- `low`: Likely Odds (Likely)
+- `───`: Likely Odds (Even/50:50)
+- `hi`: Likely Odds (Unlikely)
 
 With allowable values being `Y` (Yes) `N` (No) with modifiers `!` (and...) and `?` (but...)
 
@@ -72,7 +72,7 @@ Created from Ironsworn tables: `Action`, `Location Descriptors`, `Theme`.
 
 **Quest Generator**
 
-Created from One Page Solo Engine: `objective`, `adversaries`, `action focus`, `topic focus`. 
+Created from One Page Solo Engine: `objective`, `adversaries`, `action focus`, `topic focus`.
 
 **NPC Generator**
 

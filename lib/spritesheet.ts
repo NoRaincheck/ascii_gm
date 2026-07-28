@@ -1,4 +1,4 @@
-import { TEMPLATE_TEXT, type Rgb, type ThemeName, getFieldColor, getPalette, getPngColors } from "./theme.ts";
+import { getFieldColor, getPalette, getPngColors, type Rgb, TEMPLATE_TEXT, type ThemeName } from './theme.ts';
 
 const GLYPH_W = 8;
 const GLYPH_H = 16;
@@ -11,16 +11,16 @@ const CHAR_MAP: Record<string, number> = {};
 for (let i = 32; i <= 126; i++) {
   CHAR_MAP[String.fromCharCode(i)] = i;
 }
-CHAR_MAP["\u2500"] = 196;
-CHAR_MAP["\u2502"] = 179;
-CHAR_MAP["\u250c"] = 218;
-CHAR_MAP["\u2510"] = 191;
-CHAR_MAP["\u2514"] = 192;
-CHAR_MAP["\u2518"] = 217;
-CHAR_MAP["\u251c"] = 195;
-CHAR_MAP["\u2524"] = 180;
-CHAR_MAP["\u252c"] = 194;
-CHAR_MAP["\u2534"] = 193;
+CHAR_MAP['\u2500'] = 196;
+CHAR_MAP['\u2502'] = 179;
+CHAR_MAP['\u250c'] = 218;
+CHAR_MAP['\u2510'] = 191;
+CHAR_MAP['\u2514'] = 192;
+CHAR_MAP['\u2518'] = 217;
+CHAR_MAP['\u251c'] = 195;
+CHAR_MAP['\u2524'] = 180;
+CHAR_MAP['\u252c'] = 194;
+CHAR_MAP['\u2534'] = 193;
 
 export function getGlyphIndex(ch: string): number | undefined {
   return CHAR_MAP[ch];
@@ -35,10 +35,14 @@ export function parseSpritesheet(imageSource: CanvasImageSource, ctx: CanvasRend
     for (let col = 0; col < cols; col++) {
       ctx.drawImage(
         imageSource,
-        col * CELL_X + 1, row * CELL_Y,
-        GLYPH_W, GLYPH_H,
-        0, 0,
-        GLYPH_W, GLYPH_H,
+        col * CELL_X + 1,
+        row * CELL_Y,
+        GLYPH_W,
+        GLYPH_H,
+        0,
+        0,
+        GLYPH_W,
+        GLYPH_H,
       );
       const data = ctx.getImageData(0, 0, GLYPH_W, GLYPH_H);
       glyphs.push(data);
@@ -56,18 +60,18 @@ export function isLoaded(): boolean {
 export function renderCardToCanvas(
   ctx: CanvasRenderingContext2D,
   cardText: string,
-  theme: ThemeName = "macchiato",
+  theme: ThemeName = 'macchiato',
   imageMode: boolean = true,
 ): void {
   if (!glyphData && imageMode) {
-    throw new Error("Spritesheet not loaded. Call parseSpritesheet first.");
+    throw new Error('Spritesheet not loaded. Call parseSpritesheet first.');
   }
 
   const { text, bg, highlightText } = getPngColors(theme);
   const palette = getPalette(theme);
 
-  const cardLines = cardText.split("\n");
-  const templateLines = TEMPLATE_TEXT.split("\n");
+  const cardLines = cardText.split('\n');
+  const templateLines = TEMPLATE_TEXT.split('\n');
 
   const charWidth = GLYPH_W;
   const charHeight = GLYPH_H;
@@ -104,7 +108,7 @@ function renderImageMode(
 
   for (let li = 0; li < cardLines.length; li++) {
     const cardLine = cardLines[li];
-    const templLine = templateLines[li] ?? "";
+    const templLine = templateLines[li] ?? '';
 
     for (let ci = 0; ci < cardLine.length; ci++) {
       const ch = cardLine[ci];
@@ -176,11 +180,11 @@ function renderCanvasMode(
 
   const fontSize = Math.min(charWidth, charHeight) + 4;
   ctx.font = `${fontSize}px monospace`;
-  ctx.textBaseline = "top";
+  ctx.textBaseline = 'top';
 
   for (let li = 0; li < cardLines.length; li++) {
     const cardLine = cardLines[li];
-    const templLine = templateLines[li] ?? "";
+    const templLine = templateLines[li] ?? '';
 
     for (let ci = 0; ci < cardLine.length; ci++) {
       const ch = cardLine[ci];

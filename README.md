@@ -1,8 +1,7 @@
 # ASCII Game Master
 
-A Deno-powered GM card generator for solo TTRPGs. Generates random oracle rolls,
-NPC names, quest hooks, and personality traits rendered in a fixed-width
-box-drawn card — to your terminal, as a PNG, or in your browser.
+A Deno-powered GM card generator for solo TTRPGs. Generates random oracle rolls, NPC names, quest hooks, and personality
+traits rendered in a fixed-width box-drawn card — to your terminal, as a PNG, or in your browser.
 
 ## Quick Start
 
@@ -18,12 +17,12 @@ Prints a colorized card to the terminal (macchiato dark theme).
 deno task cli [--theme macchiato|latte] [--count N] [--output-dir DIR] [--seed N]
 ```
 
-| Option | Default | Description |
-|---|---|---|
-| `--theme` | `macchiato` | Catppuccin theme: `macchiato` (dark) or `latte` (light) |
-| `--count` | `1` | Number of cards to generate |
-| `--output-dir` | — | Output directory for PNG files |
-| `--seed` | — | Seed for reproducible generation |
+| Option         | Default     | Description                                             |
+| -------------- | ----------- | ------------------------------------------------------- |
+| `--theme`      | `macchiato` | Catppuccin theme: `macchiato` (dark) or `latte` (light) |
+| `--count`      | `1`         | Number of cards to generate                             |
+| `--output-dir` | —           | Output directory for PNG files                          |
+| `--seed`       | —           | Seed for reproducible generation                        |
 
 Generate 50 light-theme PNGs:
 
@@ -61,8 +60,7 @@ Opens a browser at `http://localhost:8080` with:
 deno task build
 ```
 
-Output goes to `docs/`. Configure GitHub Pages to serve from the `docs/` folder
-and commit.
+Output goes to `docs/`. Configure GitHub Pages to serve from the `docs/` folder and commit.
 
 ## Legend
 
