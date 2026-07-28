@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCII Game Master</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <h1>ASCII Game Master</h1>
+  <div id="toolbar">
+    <button id="generate-btn">Generate</button>
+    <select id="theme-select">
+      <option value="macchiato">Macchiato (Dark)</option>
+      <option value="latte">Latte (Light)</option>
+    </select>
+    <label class="toggle-label">
+      <span id="mode-label">Image Mode</span>
+      <button id="mode-toggle" class="toggle-btn">Switch to Canvas Mode</button>
+    </label>
+  </div>
+  <div id="card-container">
+    <canvas id="card-canvas"></canvas>
+  </div>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

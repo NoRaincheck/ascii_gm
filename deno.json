@@ -1,0 +1,14 @@
+{
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "cli": "deno run --allow-read --allow-write --allow-env --allow-ffi cli.ts",
+    "dev": "deno task build && deno run --allow-read --allow-net scripts/serve.ts",
+    "build": "deno run --allow-read --allow-write --allow-env --allow-ffi --allow-run scripts/build.ts",
+    "install-canvas": "deno install --node-modules-dir=auto --allow-scripts npm:canvas",
+    "samples": "deno run --allow-read --allow-write --allow-env --allow-ffi scripts/samples.ts"
+  },
+  "imports": {
+    "canvas": "npm:canvas@3.2.3",
+    "esbuild": "npm:esbuild@^0.24.0"
+  }
+}

@@ -1,91 +1,111 @@
 # ASCII Game Master
 
-A riff on the game master apprentice, but in ascii mode. 
+A Deno-powered GM card generator for solo TTRPGs. Generates random oracle rolls,
+NPC names, quest hooks, and personality traits rendered in a fixed-width
+box-drawn card — to your terminal, as a PNG, or in your browser.
 
 ## Quick Start
 
-To generate run:
+```sh
+deno task cli
+```
+
+Prints a colorized card to the terminal (macchiato dark theme).
+
+## CLI
 
 ```sh
-brew install uv
-uv sync
-mkdir cards
-uv run generate.py
+deno task cli [--theme macchiato|latte] [--count N] [--output-dir DIR] [--seed N]
 ```
 
-## Usage
+| Option | Default | Description |
+|---|---|---|
+| `--theme` | `macchiato` | Catppuccin theme: `macchiato` (dark) or `latte` (light) |
+| `--count` | `1` | Number of cards to generate |
+| `--output-dir` | — | Output directory for PNG files |
+| `--seed` | — | Seed for reproducible generation |
 
-```py
-from ascii_gm.text_generator import generate_text
-from ascii_gm.oracle_data import gen_data
-from ascii_gm.ascii_png import create_card
+Generate 50 light-theme PNGs:
 
-card_text = generate_text("card", gen_data)
-create_card(card_text, f"card.png")
-print(card_text)
+```sh
+deno task cli --theme latte --count 50 --output-dir cards
 ```
 
-```
-┌────────────────────┐
-│low:Y   d4 2  d12 03│
-├───:N   d6 1  d20 05│
-│hi :N   d8 3  d00 21│
-│                    │
-│Scheme Empty  Prize │
-│                    │
-│OB:Recover valuable │
-│AD:Guardians        │
-│EV:Move, Allies     │
-│                    │
-│NM:Sayer, Kiah, Fara│
-│JB:Sailor, Honest   │
-│GL:Seek a truth     │
-│                    │
-│VT:Disciplined      │
-│VC:Vain             │
-└────────────────────┘
+Reproduce the sample cards:
+
+```sh
+deno task cli --seed 42 --theme macchiato --output-dir .
+deno task cli --seed 99 --theme latte --output-dir .
 ```
 
-Example output
+![Dark Theme (Macchiato)](./card_macchiato.png)
 
-![Dark Theme](./card_macchiato.png)
+![Light Theme (Latte)](./card_latte.png)
 
-![Light Theme](./card_latte.png)
+## Web App
+
+```sh
+deno task dev
+```
+
+Opens a browser at `http://localhost:8080` with:
+
+- **Generate** — creates a new random card
+- **Theme** — toggle macchiato (dark) / latte (light)
+- **Image Mode** — pixel-perfect rendering from the BIOS ROM spritesheet
+- **Canvas Mode** — monospace canvas text rendering (scalable)
+
+### GitHub Pages
+
+```sh
+deno task build
+```
+
+Output goes to `docs/`. Configure GitHub Pages to serve from the `docs/` folder
+and commit.
 
 ## Legend
 
 **Likely Odds**
 
-* `low`: Likely Odds (Likely) 
-* `───`: Likely Odds (Even/50:50)
-* `hi`: Likely Odds (Unlikely)
+- `low`: Likely (high chance)
+- `───`: Even (50:50)
+- `hi`: Unlikely (low chance)
 
-With allowable values being `Y` (Yes) `N` (No) with modifiers `!` (and...) and `?` (but...)
+Values: `Y` (Yes), `N` (No) with modifiers `!` (and…) and `?` (but…).
 
-**Dice**
+**Dice** — `d4`–`d20` standard RPG dice. `d00` is percentile (`00`–`99`).
 
-Self explanatory. `d00` is the `d100` with values from `00-99` similar to percentile dice interpret `00` as `100`.
+**Event** — Ironsworn: Action, Location Descriptors, Theme.
 
-**Event Generator**
+**Quest** — One Page Solo Engine: objective, adversaries, action/topic focus.
 
-Created from Ironsworn tables: `Action`, `Location Descriptors`, `Theme`.
+**NPC** — Ironsworn: Ironlander Names, NPC Descriptors, Goals.
 
-**Quest Generator**
+**Virtue/Vice** — Cairn character tables.
 
-Created from One Page Solo Engine: `objective`, `adversaries`, `action focus`, `topic focus`. 
+## Project Structure
 
-**NPC Generator**
-
-Created from Ironsworn tables: `Ironlander Names`, `NPC Descriptors`, `Goals`.
-
-**Virtue/Vice**
-
-Created from Cairn character tables: `Virtue`, `Vice`.
-
-## Tests
-
-To run tests
-
-```sh
-uv run pytest ascii_gm/tests
 ```
+archive/                  Archived Python implementation
+lib/                      Shared library (CLI + web)
+├── text_generator.ts     Token-based text generation
+├── oracle_data.ts        Oracle tables and card template
+├── theme.ts              Catppuccin themes and colorization
+├── card.ts               Card generation orchestration
+├── spritesheet.ts        BIOS font glyph rendering (Canvas 2D)
+└── terminal.ts           ANSI terminal output
+cli.ts                    CLI entry point
+www/                      Web app source
+├── index.html
+├── app.js
+└── style.css
+docs/                     Built site for GitHub Pages
+scripts/
+├── serve.ts              Dev server
+└── build.ts              GitHub Pages build
+```
+
+## License
+
+MIT
