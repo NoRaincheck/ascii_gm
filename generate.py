@@ -1,6 +1,6 @@
 from tqdm import tqdm
 
-from ascii_gm.ascii_png import create_card
+from ascii_gm.ascii_png_bios import create_card
 from ascii_gm.oracle_data import gen_data
 from ascii_gm.text_generator import generate_text
 

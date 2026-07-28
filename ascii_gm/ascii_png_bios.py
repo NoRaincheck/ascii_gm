@@ -15,9 +15,6 @@ from .theme import PNG_PALETTE, TEMPLATE_PATH, get_field_color
 base_path = Path(__file__).parent
 template = TEMPLATE_PATH.read_text()
 
-FONT_PATH = str(base_path / "FiraCode-Regular.ttf")
-FALLBACK_FONT = ImageFont.truetype(FONT_PATH, size=14)
-
 SPRITE_PATH = base_path / "wang_3050_BIOS_ROM__8x16.png"
 SPRITE = Image.open(str(SPRITE_PATH))
 GLYPH_W, GLYPH_H = 8, 16
