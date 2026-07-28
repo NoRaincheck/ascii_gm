@@ -10,7 +10,14 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .theme import PNG_PALETTE, TEMPLATE_PATH, get_field_color
+from .theme import (
+    MACCHIATO_BG,
+    MACCHIATO_HIGHLIGHT_TEXT,
+    MACCHIATO_TEXT,
+    PNG_PALETTE,
+    TEMPLATE_PATH,
+    get_field_color,
+)
 
 base_path = Path(__file__).parent
 template = TEMPLATE_PATH.read_text()
@@ -78,8 +85,8 @@ def _render_glyph(glyph, fg_color, bg_color):
 def create_card(
     card,
     output_file,
-    text_color=(76, 79, 105),
-    bg_color=(239, 241, 245),
+    text_color=MACCHIATO_TEXT,
+    bg_color=MACCHIATO_BG,
 ):
     char_width = GLYPH_W
     char_height = GLYPH_H
@@ -111,7 +118,7 @@ def create_card(
             glyph = get_glyph(ch)
             if glyph is not None:
                 if is_highlight and (color := get_field_color(li, ci, card_lines, PNG_PALETTE)):
-                    rendered = _render_glyph(glyph, text_color, color)
+                    rendered = _render_glyph(glyph, MACCHIATO_HIGHLIGHT_TEXT, color)
                 else:
                     rendered = _render_glyph(glyph, text_color, bg_color)
                 image.paste(rendered, (x, y), rendered)
@@ -121,9 +128,9 @@ def create_card(
                         (x - padding, y, x + char_width + padding, y + char_height),
                         fill=color,
                     )
-                fdraw.text((x, y), ch, font=FALLBACK_FONT, fill=text_color)
-                if is_highlight:
-                    fdraw.text((x, y), ch, font=FALLBACK_FONT, fill=bg_color)
+                    fdraw.text((x, y), ch, font=FALLBACK_FONT, fill=MACCHIATO_HIGHLIGHT_TEXT)
+                else:
+                    fdraw.text((x, y), ch, font=FALLBACK_FONT, fill=text_color)
             x += char_width
 
         y += char_height
