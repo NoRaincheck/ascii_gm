@@ -48,7 +48,9 @@ print(card_text)
 
 Example output
 
-![example](./card.png)
+![Dark Theme](./card_macchiato.png)
+
+![Light Theme](./card_latte.png)
 
 ## Legend
 

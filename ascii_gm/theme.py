@@ -1,15 +1,19 @@
 from pathlib import Path
+from typing import Literal
 
 from catppuccin import PALETTE
 from colorama import Style
 
 TEMPLATE_PATH = Path(__file__).parent / "template.txt"
 
-# Catppuccin Macchiato palette - https://catppuccin.com/palette/
+# Catppuccin palette - https://catppuccin.com/palette/
 # Style guide: https://github.com/catppuccin/catppuccin/blob/main/docs/style-guide.md
 # positive = Blue (Success) | negative = Rosewater (Errors) | neutral = Text (Body Copy)
 
+SUPPORTED_THEMES: Literal["macchiato", "latte"] = Literal["macchiato", "latte"]
+
 MACCHIATO = PALETTE.macchiato.colors
+LATTE = PALETTE.latte.colors
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -18,33 +22,49 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     return tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
 
 
-# PNG palette: positive=Blue, negative=Rosewater, neutral=Surface0
-PNG_PALETTE = {
-    "positive": (MACCHIATO.blue.rgb.r, MACCHIATO.blue.rgb.g, MACCHIATO.blue.rgb.b),
-    "negative": (MACCHIATO.rosewater.rgb.r, MACCHIATO.rosewater.rgb.g, MACCHIATO.rosewater.rgb.b),
-    "neutral": (MACCHIATO.overlay0.rgb.r, MACCHIATO.overlay0.rgb.g, MACCHIATO.overlay0.rgb.b),
-}
-
-# Terminal palette using ANSI RGB escape codes for Catppuccin Macchiato colors
-# positive=Blue, negative=Rosewater, neutral=Crust
-
-
 def _ansi_rgb(r: int, g: int, b: int) -> str:
     """Create ANSI 24-bit RGB escape code."""
     return f"\033[38;2;{r};{g};{b}m"
 
 
-TERMINAL_PALETTE = {
-    "positive": _ansi_rgb(MACCHIATO.blue.rgb.r, MACCHIATO.blue.rgb.g, MACCHIATO.blue.rgb.b),
-    "negative": _ansi_rgb(MACCHIATO.rosewater.rgb.r, MACCHIATO.rosewater.rgb.g, MACCHIATO.rosewater.rgb.b),
-    "neutral": _ansi_rgb(MACCHIATO.crust.rgb.r, MACCHIATO.crust.rgb.g, MACCHIATO.crust.rgb.b),
-}
+def get_palette(theme: str = "macchiato"):
+    """Get PNG palette dict for the given theme."""
+    theme = theme.lower()
+    colors = MACCHIATO if theme == "macchiato" else LATTE
+    return {
+        "positive": (colors.blue.rgb.r, colors.blue.rgb.g, colors.blue.rgb.b),
+        "negative": (colors.rosewater.rgb.r, colors.rosewater.rgb.g, colors.rosewater.rgb.b),
+        "neutral": (colors.overlay0.rgb.r, colors.overlay0.rgb.g, colors.overlay0.rgb.b),
+    }
 
-# Default text/background colors for PNG rendering
-MACCHIATO_TEXT = (MACCHIATO.text.rgb.r, MACCHIATO.text.rgb.g, MACCHIATO.text.rgb.b)
-MACCHIATO_BG = (MACCHIATO.base.rgb.r, MACCHIATO.base.rgb.g, MACCHIATO.base.rgb.b)
-# Dark text for use on top of light pastel highlights (blue/rosewater)
-MACCHIATO_HIGHLIGHT_TEXT = (MACCHIATO.crust.rgb.r, MACCHIATO.crust.rgb.g, MACCHIATO.crust.rgb.b)
+
+def get_terminal_palette(theme: str = "macchiato"):
+    """Get terminal palette dict for the given theme."""
+    theme = theme.lower()
+    colors = MACCHIATO if theme == "macchiato" else LATTE
+    return {
+        "positive": _ansi_rgb(colors.blue.rgb.r, colors.blue.rgb.g, colors.blue.rgb.b),
+        "negative": _ansi_rgb(colors.rosewater.rgb.r, colors.rosewater.rgb.g, colors.rosewater.rgb.b),
+        "neutral": _ansi_rgb(colors.crust.rgb.r, colors.crust.rgb.g, colors.crust.rgb.b),
+    }
+
+
+def get_png_colors(theme: str = "macchiato"):
+    """Get text, bg, and highlight text colors for PNG rendering."""
+    theme = theme.lower()
+    colors = MACCHIATO if theme == "macchiato" else LATTE
+    text = (colors.text.rgb.r, colors.text.rgb.g, colors.text.rgb.b)
+    bg = (colors.base.rgb.r, colors.base.rgb.g, colors.base.rgb.b)
+    # Dark text for use on top of light pastel highlights (blue/rosewater)
+    highlight_text = (colors.crust.rgb.r, colors.crust.rgb.g, colors.crust.rgb.b)
+    return text, bg, highlight_text
+
+
+# Backwards-compatible defaults (macchiato)
+PNG_PALETTE = get_palette("macchiato")
+TERMINAL_PALETTE = get_terminal_palette("macchiato")
+MACCHIATO_TEXT, MACCHIATO_BG, MACCHIATO_HIGHLIGHT_TEXT = get_png_colors("macchiato")
+LATTE_TEXT, LATTE_BG, LATTE_HIGHLIGHT_TEXT = get_png_colors("latte")
 
 FIELD_CATEGORY = {
     "low_odds": "yesno",
@@ -126,7 +146,11 @@ def resolve_category(line_idx, col_idx, field_name, card_lines):
     return "positive" if first_char == "Y" else "negative"
 
 
-def get_field_color(line_idx, col_idx, card_lines, palette=PNG_PALETTE):
+def get_field_color(line_idx, col_idx, card_lines, palette=None, theme="macchiato"):
+    """Get the color for a field at the given position."""
+    if palette is None:
+        palette = get_palette(theme)
+    theme = theme.lower()
     field_name = _POSITION_MAP.get((line_idx, col_idx))
     if field_name is None:
         return None
@@ -134,7 +158,11 @@ def get_field_color(line_idx, col_idx, card_lines, palette=PNG_PALETTE):
     return palette.get(cat, palette["neutral"])
 
 
-def colorize_card(card_text, palette=TERMINAL_PALETTE):
+def colorize_card(card_text, palette=None, theme="macchiato"):
+    """Colorize card text with ANSI escape codes for terminal display."""
+    if palette is None:
+        palette = get_terminal_palette(theme)
+    theme = theme.lower()
     template_text = TEMPLATE_PATH.read_text()
     card_lines = card_text.split("\n")
     template_lines = template_text.split("\n")

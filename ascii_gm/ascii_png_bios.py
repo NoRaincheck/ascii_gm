@@ -11,12 +11,17 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from .theme import (
+    LATTE_BG,
+    LATTE_HIGHLIGHT_TEXT,
+    LATTE_TEXT,
     MACCHIATO_BG,
     MACCHIATO_HIGHLIGHT_TEXT,
     MACCHIATO_TEXT,
     PNG_PALETTE,
     TEMPLATE_PATH,
     get_field_color,
+    get_palette,
+    get_png_colors,
 )
 
 base_path = Path(__file__).parent
@@ -85,9 +90,24 @@ def _render_glyph(glyph, fg_color, bg_color):
 def create_card(
     card,
     output_file,
-    text_color=MACCHIATO_TEXT,
-    bg_color=MACCHIATO_BG,
+    theme="macchiato",
+    text_color=None,
+    bg_color=None,
 ):
+    """Create a PNG card image.
+
+    Args:
+        card: ASCII card text.
+        output_file: Output PNG file path.
+        theme: Catppuccin theme name ('macchiato' or 'latte').
+        text_color: Override text color (defaults to theme's text color).
+        bg_color: Override background color (defaults to theme's bg color).
+    """
+    theme = theme.lower()
+    if text_color is None or bg_color is None:
+        text_color, bg_color, highlight_text = get_png_colors(theme)
+    else:
+        highlight_text = MACCHIATO_HIGHLIGHT_TEXT if theme == "macchiato" else LATTE_HIGHLIGHT_TEXT
     char_width = GLYPH_W
     char_height = GLYPH_H
     padding = 2
@@ -117,18 +137,20 @@ def create_card(
 
             glyph = get_glyph(ch)
             if glyph is not None:
-                if is_highlight and (color := get_field_color(li, ci, card_lines, PNG_PALETTE)):
-                    rendered = _render_glyph(glyph, MACCHIATO_HIGHLIGHT_TEXT, color)
+                palette = get_palette(theme)
+                if is_highlight and (color := get_field_color(li, ci, card_lines, palette, theme)):
+                    rendered = _render_glyph(glyph, highlight_text, color)
                 else:
                     rendered = _render_glyph(glyph, text_color, bg_color)
                 image.paste(rendered, (x, y), rendered)
             else:
-                if is_highlight and (color := get_field_color(li, ci, card_lines, PNG_PALETTE)):
+                palette = get_palette(theme)
+                if is_highlight and (color := get_field_color(li, ci, card_lines, palette, theme)):
                     fdraw.rectangle(
                         (x - padding, y, x + char_width + padding, y + char_height),
                         fill=color,
                     )
-                    fdraw.text((x, y), ch, font=FALLBACK_FONT, fill=MACCHIATO_HIGHLIGHT_TEXT)
+                    fdraw.text((x, y), ch, font=FALLBACK_FONT, fill=highlight_text)
                 else:
                     fdraw.text((x, y), ch, font=FALLBACK_FONT, fill=text_color)
             x += char_width
