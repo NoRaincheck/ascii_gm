@@ -129,6 +129,25 @@ def create_card(
         y += char_height
 
     image = Image.alpha_composite(image, fallback)
+
+    # Trim to content: find bounding box of non-background pixels
+    # Create a mask where background pixels are 0 and content pixels are 255
+    mask = Image.new("L", image.size, 0)
+    mp = mask.load()
+    ip = image.load()
+    for y in range(image.height):
+        for x in range(image.width):
+            if ip[x, y][:3] != bg_color[:3]:
+                mp[x, y] = 255
+    bbox = mask.getbbox()
+    if bbox is not None:
+        l, t, r, b = bbox
+        l = max(l - 1, 0)
+        t = max(t - 1, 0)
+        r = min(r + 1, image.width)
+        b = min(b + 1, image.height)
+        image = image.crop((l, t, r, b))
+
     image.save(output_file)
 
 
