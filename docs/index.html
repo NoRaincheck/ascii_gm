@@ -19,6 +19,35 @@
       <span id="mode-label">Image Mode</span>
       <button id="mode-toggle" class="toggle-btn">Switch to Canvas Mode</button>
     </label>
+    <label class="toggle-label">
+      <span id="legend-label">Legend</span>
+      <button id="legend-toggle" class="toggle-btn">Show Legend</button>
+    </label>
+  </div>
+  <div id="legend-panel" class="legend-hidden">
+    <div class="legend-section">
+      <h3>Colors</h3>
+      <div class="legend-colors">
+        <span class="legend-swatch legend-positive"></span> Positive / Yes
+        <span class="legend-swatch legend-negative"></span> Negative / No
+        <span class="legend-swatch legend-neutral"></span> Neutral / Information
+      </div>
+    </div>
+    <div class="legend-section">
+      <h3>Field Abbreviations</h3>
+      <div class="legend-fields">
+        <div><span class="field-code">low/even/hi</span> <span class="field-desc">Odds (Yes/No)</span></div>
+        <div><span class="field-code">d4-d00</span> <span class="field-desc">Dice rolls</span></div>
+        <div><span class="field-code">OB</span> <span class="field-desc">Objective</span></div>
+        <div><span class="field-code">AD</span> <span class="field-desc">Adversaries</span></div>
+        <div><span class="field-code">EV</span> <span class="field-desc">Event / Focus</span></div>
+        <div><span class="field-code">NM</span> <span class="field-desc">Name</span></div>
+        <div><span class="field-code">JB</span> <span class="field-desc">Job / Role</span></div>
+        <div><span class="field-code">GL</span> <span class="field-desc">Goal</span></div>
+        <div><span class="field-code">VT</span> <span class="field-desc">Virtue</span></div>
+        <div><span class="field-code">VC</span> <span class="field-desc">Vice</span></div>
+      </div>
+    </div>
   </div>
   <div id="card-container">
     <div class="card-grid"></div>

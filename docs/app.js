@@ -528,8 +528,12 @@ var generateBtn = document.getElementById("generate-btn");
 var themeSelect = document.getElementById("theme-select");
 var modeToggle = document.getElementById("mode-toggle");
 var modeLabel = document.getElementById("mode-label");
+var legendToggle = document.getElementById("legend-toggle");
+var legendPanel = document.getElementById("legend-panel");
+var legendLabel = document.getElementById("legend-label");
 var currentCard = "";
 var imageMode = true;
+var legendVisible = false;
 var spritesheetLoaded = false;
 var cards = [];
 async function init() {
@@ -539,6 +543,7 @@ async function init() {
   generateBtn.addEventListener("click", newCard);
   themeSelect.addEventListener("change", renderAllCards);
   modeToggle.addEventListener("click", toggleMode);
+  legendToggle.addEventListener("click", toggleLegend);
   document.addEventListener("keydown", handleKeyDown);
 }
 async function loadOraclesJSON() {
@@ -581,6 +586,11 @@ function toggleMode() {
   modeLabel.textContent = imageMode ? "Image Mode" : "Canvas Mode";
   modeToggle.textContent = imageMode ? "Switch to Canvas Mode" : "Switch to Image Mode";
   renderAllCards();
+}
+function toggleLegend() {
+  legendVisible = !legendVisible;
+  legendPanel.classList.toggle("legend-hidden", !legendVisible);
+  legendToggle.textContent = legendVisible ? "Hide Legend" : "Show Legend";
 }
 function handleKeyDown(e) {
   if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
