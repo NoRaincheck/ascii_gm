@@ -1,4 +1,4 @@
-import { generateCard, getGenData } from './lib/card.ts';
+import { generateCard, generateArt, getGenData } from './lib/card.ts';
 import { loadOracles } from './lib/oracle_data.ts';
 import { printCard } from './lib/terminal.ts';
 import { parseSpritesheet, renderCardToCanvas } from './lib/spritesheet.ts';
@@ -33,9 +33,10 @@ async function main() {
 
   for (let idx = 0; idx < count; idx++) {
     const card = generateCard();
+    const art = generateArt(card);
 
     if (count === 1) {
-      printCard(card, theme);
+      printCard(card, theme, art);
     }
 
     if (outputDir) {
@@ -45,7 +46,7 @@ async function main() {
       const tempCtx2 = createCanvas(1, 1).getContext('2d');
       const canvas = createCanvas(1, 1);
       const ctx = canvas.getContext('2d');
-      renderCardToCanvas(ctx as unknown as CanvasRenderingContext2D, card, theme, true);
+      renderCardToCanvas(ctx as unknown as CanvasRenderingContext2D, card, theme, true, art);
 
       const buf = canvas.toBuffer('image/png');
       Deno.writeFileSync(outPath, new Uint8Array(buf));

@@ -1,7 +1,7 @@
 export { generateList, generateText } from './text_generator.ts';
 export { buildGenData, getOracles, loadOracles, setOracles } from './oracle_data.ts';
 export type { OracleEntry } from './oracle_data.ts';
-export { generateCard, getGenData, resetGenData } from './card.ts';
+export { generateCard, generateArt, getGenData, resetGenData } from './card.ts';
 export {
   colorizeCard,
   FIELD_CATEGORY,
