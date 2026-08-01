@@ -1,4 +1,5 @@
-import { getFieldColor, getPalette, getPngColors, type Rgb, TEMPLATE_TEXT, type ThemeName } from './theme.ts';
+import { getFieldColor, getPalette, getPngColors, getTemplateText, type Rgb, type ThemeName } from './theme.ts';
+import type { Layout } from './oracle_data.ts';
 
 const GLYPH_W = 8;
 const GLYPH_H = 16;
@@ -62,6 +63,7 @@ export function renderCardToCanvas(
   cardText: string,
   theme: ThemeName = 'macchiato',
   imageMode: boolean = true,
+  layout: Layout = 'portrait',
 ): void {
   if (!glyphData && imageMode) {
     throw new Error('Spritesheet not loaded. Call parseSpritesheet first.');
@@ -71,7 +73,13 @@ export function renderCardToCanvas(
   const palette = getPalette(theme);
 
   const cardLines = cardText.split('\n');
-  const templateLines = TEMPLATE_TEXT.split('\n');
+  const templateLines = getTemplateText(layout).split('\n');
+
+  if (cardLines.length !== templateLines.length) {
+    throw new Error(
+      `Card line count (${cardLines.length}) does not match ${layout} template (${templateLines.length}).`,
+    );
+  }
 
   const charWidth = GLYPH_W;
   const charHeight = GLYPH_H;
@@ -86,9 +94,33 @@ export function renderCardToCanvas(
   ctx.canvas.height = canvasHeight;
 
   if (imageMode) {
-    renderImageMode(ctx, cardLines, templateLines, palette, text, bg, highlightText, charWidth, charHeight);
+    renderImageMode(
+      ctx,
+      cardLines,
+      templateLines,
+      palette,
+      text,
+      bg,
+      highlightText,
+      charWidth,
+      charHeight,
+      theme,
+      layout,
+    );
   } else {
-    renderCanvasMode(ctx, cardLines, templateLines, palette, text, bg, highlightText, charWidth, charHeight);
+    renderCanvasMode(
+      ctx,
+      cardLines,
+      templateLines,
+      palette,
+      text,
+      bg,
+      highlightText,
+      charWidth,
+      charHeight,
+      theme,
+      layout,
+    );
   }
 }
 
@@ -102,6 +134,8 @@ function renderImageMode(
   highlightTextColor: Rgb,
   charWidth: number,
   charHeight: number,
+  theme: ThemeName,
+  layout: Layout,
 ): void {
   const imageData = ctx.createImageData(ctx.canvas.width, ctx.canvas.height);
   fillBg(imageData, bgColor);
@@ -124,7 +158,7 @@ function renderImageMode(
       let bg: Rgb;
 
       if (isHighlight) {
-        const fieldColor = getFieldColor(li, ci, cardLines, palette);
+        const fieldColor = getFieldColor(li, ci, cardLines, palette, theme, layout);
         if (fieldColor) {
           fg = highlightTextColor;
           bg = fieldColor;
@@ -174,6 +208,8 @@ function renderCanvasMode(
   highlightTextColor: Rgb,
   charWidth: number,
   charHeight: number,
+  theme: ThemeName,
+  layout: Layout,
 ): void {
   ctx.fillStyle = rgbToCss(bgColor);
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -195,7 +231,7 @@ function renderCanvasMode(
       const y = li * charHeight;
 
       if (isHighlight) {
-        const fieldColor = getFieldColor(li, ci, cardLines, palette);
+        const fieldColor = getFieldColor(li, ci, cardLines, palette, theme, layout);
         if (fieldColor) {
           ctx.fillStyle = rgbToCss(fieldColor);
           ctx.fillRect(x, y, charWidth, charHeight);

@@ -1,5 +1,6 @@
 import { generateCard, getGenData } from './lib/card.ts';
 import { loadOracles } from './lib/oracle_data.ts';
+import type { Layout } from './lib/oracle_data.ts';
 import { printCard } from './lib/terminal.ts';
 import { parseSpritesheet, renderCardToCanvas } from './lib/spritesheet.ts';
 import type { ThemeName } from './lib/theme.ts';
@@ -8,6 +9,7 @@ import { setSeed } from './lib/rng.ts';
 async function main() {
   const args = parseArgs(Deno.args);
   const theme = (args.theme ?? 'macchiato') as ThemeName;
+  const layout = (args.layout ?? 'portrait') as Layout;
   const count = args.count ?? 1;
   const outputDir = args['output-dir'];
 
@@ -32,20 +34,20 @@ async function main() {
   tempCanvas.height = 0;
 
   for (let idx = 0; idx < count; idx++) {
-    const card = generateCard();
+    const card = generateCard(layout);
 
     if (count === 1) {
-      printCard(card, theme);
+      printCard(card, theme, layout);
     }
 
     if (outputDir) {
-      const filename = count === 1 ? `card_${theme}.png` : `card_${String(idx).padStart(3, '0')}.png`;
+      const filename = count === 1 ? `card_${theme}_${layout}.png` : `card_${String(idx).padStart(3, '0')}.png`;
       const outPath = `${outputDir}/${filename}`;
 
       const tempCtx2 = createCanvas(1, 1).getContext('2d');
       const canvas = createCanvas(1, 1);
       const ctx = canvas.getContext('2d');
-      renderCardToCanvas(ctx as unknown as CanvasRenderingContext2D, card, theme, true);
+      renderCardToCanvas(ctx as unknown as CanvasRenderingContext2D, card, theme, true, layout);
 
       const buf = canvas.toBuffer('image/png');
       Deno.writeFileSync(outPath, new Uint8Array(buf));
@@ -60,6 +62,8 @@ function parseArgs(args: string[]): Record<string, string | number | undefined> 
     const arg = args[i];
     if (arg === '--theme' && i + 1 < args.length) {
       result.theme = args[++i];
+    } else if (arg === '--layout' && i + 1 < args.length) {
+      result.layout = args[++i];
     } else if (arg === '--count' && i + 1 < args.length) {
       result.count = parseInt(args[++i]);
     } else if (arg === '--output-dir' && i + 1 < args.length) {
@@ -79,6 +83,7 @@ function printHelp() {
 
 Options:
   --theme THEME      Catppuccin theme (macchiato, latte) [default: macchiato]
+  --layout LAYOUT    Card layout (portrait, landscape) [default: portrait]
   --count N          Number of cards to generate [default: 1]
   --output-dir DIR   Output directory for PNG files
   --seed N           Seed for reproducible generation

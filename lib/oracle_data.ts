@@ -1,6 +1,8 @@
 import { random, randomInt } from './rng.ts';
 import { generateText } from './text_generator.ts';
 
+export type Layout = 'portrait' | 'landscape';
+
 export interface OracleEntry {
   title: string;
   aliases: string[];
@@ -57,7 +59,12 @@ function splitList(aList: string[], size: number): string[][] {
   return result;
 }
 
-export function buildGenData(): Record<string, unknown> {
+export function buildGenData(layout: Layout = 'portrait'): Record<string, unknown> {
+  if (layout === 'landscape') return buildLandscapeGenData();
+  return buildPortraitGenData();
+}
+
+function buildPortraitGenData(): Record<string, unknown> {
   const genData: Record<string, unknown> = {};
 
   genData['low_odds'] = ['{low_odd}{odds_modifier}'];
@@ -209,6 +216,114 @@ export function buildGenData(): Record<string, unknown> {
       '│VT:{virtue}│',
       '│VC:{vice}│',
       '└────────────────────┘',
+    ].join('\n'),
+  ];
+
+  return genData;
+}
+
+function buildLandscapeGenData(): Record<string, unknown> {
+  const genData: Record<string, unknown> = {};
+
+  genData['low_odds'] = ['{low_odd}{odds_modifier}'];
+  genData['hi_odds'] = ['{hi_odd}{odds_modifier}'];
+  genData['odds_modifier'] = { '1': '?', '2-5': ' ', '6': '!' };
+  genData['low_odd'] = { '1-4': 'N', '5-6': 'Y' };
+  genData['hi_odd'] = { '1-2': 'N', '3-6': 'Y' };
+
+  genData['d4'] = diceRange(4).map((x) => x.padStart(2, '0'));
+  genData['d6'] = diceRange(6).map((x) => x.padStart(2, '0'));
+  genData['d8'] = diceRange(8).map((x) => x.padStart(2, '0').padStart(3, ' '));
+  genData['d12'] = diceRange(12).map((x) => x.padStart(2, '0'));
+  genData['d20'] = diceRange(20).map((x) => x.padStart(2, '0'));
+  genData['d100'] = Array.from({ length: 100 }, (_, i) => String(i + 1).padStart(3, ' '));
+
+  genData['action'] = getItems('Action')
+    .filter((x) => x.length <= 6)
+    .map((x) => x.padEnd(6, ' '));
+  genData['detail'] = getItems('Location Descriptors')
+    .filter((x) => x.length <= 6)
+    .map((x) => x.padEnd(6, ' '));
+  genData['topic'] = getItems('Theme')
+    .filter((x) => x.length <= 6)
+    .map((x) => x.padEnd(6, ' '));
+
+  genData['objective'] = [
+    'Remove a threat',
+    'Learn the truth',
+    'Recover valuable',
+    'Escort to safety',
+    'Restore broken',
+    'Save ally peril',
+  ].map((x) => x.padEnd(22, ' '));
+
+  genData['adversaries'] = [
+    'Powerful entity',
+    'Outlaws',
+    'Guardians',
+    'Local inhabitant',
+    'Enemy horde',
+    'A villain',
+  ].map((x) => x.padEnd(22, ' '));
+
+  genData['name'] = getItems('Ironlander Names')
+    .filter((x) => x.length <= 6)
+    .map((x) => x.padEnd(6, ' '));
+
+  genData['job'] = getItems('NPC Role')
+    .filter((x) => x.length <= 7)
+    .map((x) => x.padEnd(7, ' '));
+
+  genData['virtue'] = [
+    'Honest',
+    'Loyal',
+    'Brave',
+    'Calm',
+    'Wise',
+    'Bold',
+    'Just',
+    'Serene',
+    'Humble',
+    'Kind',
+    'Fierce',
+    'Quick',
+    'Clever',
+    'Noble',
+    'Steady',
+    'Keen',
+  ].map((x) => x.padEnd(6, ' '));
+
+  genData['vice'] = [
+    'Greedy',
+    'Lazy',
+    'Rude',
+    'Vain',
+    'Bitter',
+    'Craven',
+    'Coward',
+    'Proud',
+    'Harsh',
+    'Moody',
+    'Cruel',
+    'Fickle',
+    'Sly',
+    'Grim',
+    'Wild',
+    'Mean',
+  ].map((x) => x.padEnd(6, ' '));
+
+  genData['card'] = [
+    [
+      '┌────────────────────────────┐',
+      '│LO:{low_odds} D4 :{d4} D6 :{d6} D8  :{d8}│',
+      '│HI:{hi_odds} D12:{d12} D20:{d20} D100:{d100}│',
+      '├────────────────────────────┤',
+      '│EVT:  {action}  {detail}  {topic}│',
+      '│QST:  {objective}│',
+      '│FOE:  {adversaries}│',
+      '│NAME: {name}   JOB: {job} │',
+      '│VIRT: {virtue}   VICE: {vice} │',
+      '└────────────────────────────┘',
     ].join('\n'),
   ];
 

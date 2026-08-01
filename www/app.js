@@ -5,13 +5,14 @@ import { parseSpritesheet, renderCardToCanvas } from '../lib/spritesheet.ts';
 const cardContainer = document.getElementById('card-container');
 const generateBtn = document.getElementById('generate-btn');
 const themeSelect = document.getElementById('theme-select');
+const layoutSelect = document.getElementById('layout-select');
 const modeToggle = document.getElementById('mode-toggle');
 const modeLabel = document.getElementById('mode-label');
 
 let currentCard = '';
 let imageMode = true;
 let spritesheetLoaded = false;
-let cards = []; // array of { cardText, theme }
+let cards = []; // array of { cardText, theme, layout }
 
 async function init() {
   await loadOraclesJSON();
@@ -19,6 +20,7 @@ async function init() {
   newCard();
   generateBtn.addEventListener('click', newCard);
   themeSelect.addEventListener('change', renderAllCards);
+  layoutSelect.addEventListener('change', renderAllCards);
   modeToggle.addEventListener('click', toggleMode);
   document.addEventListener('keydown', handleKeyDown);
 }
@@ -44,8 +46,8 @@ async function loadSpritesheet() {
 }
 
 function newCard() {
-  currentCard = generateCard();
-  cards.push({ cardText: currentCard, theme: themeSelect.value });
+  currentCard = generateCard(layoutSelect.value);
+  cards.push({ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value });
   renderAllCards();
 }
 
@@ -60,7 +62,7 @@ function renderAllCards() {
     const canvas = document.createElement('canvas');
     canvas.className = 'card-canvas';
     const ctx = canvas.getContext('2d');
-    renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode);
+    renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode, cardData.layout);
     grid.appendChild(canvas);
   }
 }
