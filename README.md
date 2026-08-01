@@ -84,7 +84,8 @@ Output goes to `docs/`. Configure GitHub Pages to serve from the `docs/` folder 
 
 Values: `Y` (Yes), `N` (No) with modifiers `!` (and…) and `?` (but…).
 
-**Dice** — `d4`–`d20` standard RPG dice. `d00` is percentile (`00`–`99`).
+**Dice** — `d4`–`d20` standard RPG dice plus `d10`. `d00` is percentile (`00`–`99`), `d100` rolls 1–100 (landscape).
+Dice rolls are colored **blue** when at least 50% of the die's maximum and **orange** otherwise.
 
 **Event** — Ironsworn: Action, Location Descriptors, Theme.
 
@@ -94,10 +95,10 @@ Values: `Y` (Yes), `N` (No) with modifiers `!` (and…) and `?` (but…).
 
 **Virtue/Vice** — Cairn character tables.
 
-**Landscape (30×10)** — same card fit to GBA landscape. `LO`/`HI` odds (no even row), `D4`–`D100` dice where `D100`
-rolls 1–100 (right-aligned), `EVT` = Action/Location/Theme in three columns, `QST` = objective/adversaries, a single
-`NAME` with `JOB`, and `VIRT`/`VICE`. The `--seed`/theme is unchanged, so portrait and landscape cards roll the same
-numbers.
+**Landscape (30×10)** — same card fit to GBA landscape. Two dice rows (`D4`/`D6`/`D8`/`D10` and `D12`/`D20`/`D100`,
+where `D100` rolls 1–100 right-aligned), `EVT` = Action/Location/Theme in three columns, `QST` = objective/adversaries,
+a single `NAME` with `JOB`, and `VIRT`/`VICE`. The `--seed`/theme is unchanged, so portrait and landscape cards roll
+the same numbers.
 
 ## Project Structure
 

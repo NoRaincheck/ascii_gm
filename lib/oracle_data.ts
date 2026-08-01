@@ -225,15 +225,10 @@ function buildPortraitGenData(): Record<string, unknown> {
 function buildLandscapeGenData(): Record<string, unknown> {
   const genData: Record<string, unknown> = {};
 
-  genData['low_odds'] = ['{low_odd}{odds_modifier}'];
-  genData['hi_odds'] = ['{hi_odd}{odds_modifier}'];
-  genData['odds_modifier'] = { '1': '?', '2-5': ' ', '6': '!' };
-  genData['low_odd'] = { '1-4': 'N', '5-6': 'Y' };
-  genData['hi_odd'] = { '1-2': 'N', '3-6': 'Y' };
-
   genData['d4'] = diceRange(4).map((x) => x.padStart(2, '0'));
   genData['d6'] = diceRange(6).map((x) => x.padStart(2, '0'));
-  genData['d8'] = diceRange(8).map((x) => x.padStart(2, '0').padStart(3, ' '));
+  genData['d8'] = diceRange(8).map((x) => x.padStart(2, '0'));
+  genData['d10'] = diceRange(10).map((x) => x.padStart(2, '0'));
   genData['d12'] = diceRange(12).map((x) => x.padStart(2, '0'));
   genData['d20'] = diceRange(20).map((x) => x.padStart(2, '0'));
   genData['d100'] = Array.from({ length: 100 }, (_, i) => String(i + 1).padStart(3, ' '));
@@ -315,8 +310,8 @@ function buildLandscapeGenData(): Record<string, unknown> {
   genData['card'] = [
     [
       '┌────────────────────────────┐',
-      '│LO:{low_odds} D4 :{d4} D6 :{d6} D8  :{d8}│',
-      '│HI:{hi_odds} D12:{d12} D20:{d20} D100:{d100}│',
+      '│ D4 :{d4} D6 :{d6} D8 :{d8} D10:{d10}│',
+      '│  D12 :{d12} D20 :{d20} D100:{d100}  │',
       '├────────────────────────────┤',
       '│EVT:  {action}  {detail}  {topic}│',
       '│QST:  {objective}│',

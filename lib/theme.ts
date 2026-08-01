@@ -10,6 +10,7 @@ const MACCHIATO_COLORS: Record<string, Rgb> = {
   text: [202, 211, 245],
   blue: [138, 173, 244],
   rosewater: [245, 169, 185],
+  peach: [245, 194, 117],
 };
 
 const LATTE_COLORS: Record<string, Rgb> = {
@@ -19,6 +20,7 @@ const LATTE_COLORS: Record<string, Rgb> = {
   text: [76, 79, 105],
   blue: [30, 102, 245],
   rosewater: [220, 138, 120],
+  peach: [254, 128, 25],
 };
 
 function getColors(theme: ThemeName): Record<string, Rgb> {
@@ -31,6 +33,7 @@ export function getPalette(theme: ThemeName = 'macchiato'): Record<string, Rgb> 
     positive: c.blue,
     negative: c.rosewater,
     neutral: c.overlay0,
+    peach: c.peach,
   };
 }
 
@@ -41,6 +44,7 @@ export function getTerminalPalette(theme: ThemeName = 'macchiato'): Record<strin
     positive: ansiRgb(c.blue),
     negative: ansiRgb(c.rosewater),
     neutral: ansiRgb(neutral),
+    peach: ansiRgb(c.peach),
   };
 }
 
@@ -106,11 +110,10 @@ const FIELD_POSITIONS: [number, number, number, string][] = [
 ];
 
 export const LANDSCAPE_FIELD_CATEGORY: Record<string, string> = {
-  low_odds: 'yesno',
-  hi_odds: 'yesno',
   d4: 'neutral',
   d6: 'neutral',
   d8: 'neutral',
+  d10: 'neutral',
   d12: 'neutral',
   d20: 'neutral',
   d100: 'neutral',
@@ -126,14 +129,13 @@ export const LANDSCAPE_FIELD_CATEGORY: Record<string, string> = {
 };
 
 const LANDSCAPE_FIELD_POSITIONS: [number, number, number, string][] = [
-  [1, 4, 2, 'low_odds'],
-  [1, 11, 2, 'd4'],
-  [1, 18, 2, 'd6'],
-  [1, 26, 3, 'd8'],
-  [2, 4, 2, 'hi_odds'],
-  [2, 11, 2, 'd12'],
-  [2, 18, 2, 'd20'],
-  [2, 26, 3, 'd100'],
+  [1, 6, 2, 'd4'],
+  [1, 13, 2, 'd6'],
+  [1, 20, 2, 'd8'],
+  [1, 27, 2, 'd10'],
+  [2, 8, 2, 'd12'],
+  [2, 16, 2, 'd20'],
+  [2, 24, 3, 'd100'],
   [4, 7, 6, 'action'],
   [4, 15, 6, 'detail'],
   [4, 23, 6, 'topic'],
@@ -202,6 +204,42 @@ function getYesnoPrimaries(layout: Layout): Map<string, [number, number]> {
   return YESNO_PRIMARIES_MAPS.get(layout)!;
 }
 
+const DICE_MAX: Record<string, number> = {
+  d4: 4,
+  d6: 6,
+  d8: 8,
+  d10: 10,
+  d12: 12,
+  d20: 20,
+  d00: 99,
+  d100: 100,
+};
+
+const DICE_SPANS = new Map<Layout, Map<string, [number, number, number]>>();
+
+function getDiceSpans(layout: Layout): Map<string, [number, number, number]> {
+  if (!DICE_SPANS.has(layout)) {
+    const map = new Map<string, [number, number, number]>();
+    for (const [line, col, length, fieldName] of getFieldPositions(layout)) {
+      if (DICE_MAX[fieldName] !== undefined) {
+        map.set(fieldName, [line, col, length]);
+      }
+    }
+    DICE_SPANS.set(layout, map);
+  }
+  return DICE_SPANS.get(layout)!;
+}
+
+function resolveDiceCategory(fieldName: string, cardLines: string[], layout: Layout): string | null {
+  const span = getDiceSpans(layout).get(fieldName);
+  if (!span) return null;
+  const [line, col, length] = span;
+  const value = parseInt(cardLines[line]?.slice(col, col + length) ?? '', 10);
+  if (Number.isNaN(value)) return null;
+  const threshold = Math.ceil(DICE_MAX[fieldName] / 2);
+  return value >= threshold ? 'positive' : 'peach';
+}
+
 function resolveCategory(
   lineIdx: number,
   colIdx: number,
@@ -210,6 +248,8 @@ function resolveCategory(
   layout: Layout,
 ): string {
   const cat = getFieldCategory(layout)[fieldName] ?? 'neutral';
+  const diceCat = resolveDiceCategory(fieldName, cardLines, layout);
+  if (diceCat) return diceCat;
   if (cat !== 'yesno') return cat;
   const char = cardLines[lineIdx]?.[colIdx] ?? '';
   if (char === 'Y' || char === 'N') return char === 'Y' ? 'positive' : 'negative';
@@ -257,8 +297,8 @@ export const TEMPLATE_TEXT = '┌───────────────�
   '└────────────────────┘';
 
 export const LANDSCAPE_TEMPLATE_TEXT = '┌────────────────────────────┐\n' +
-  '│LO:@@ D4 :@@ D6 :@@ D8  :@@@│\n' +
-  '│HI:@@ D12:@@ D20:@@ D100:@@@│\n' +
+  '│ D4 :@@ D6 :@@ D8 :@@ D10:@@│\n' +
+  '│  D12 :@@ D20 :@@ D100:@@@  │\n' +
   '├────────────────────────────┤\n' +
   '│EVT:  @@@@@@  @@@@@@  @@@@@@│\n' +
   '│QST:  @@@@@@@@@@@@@@@@@@@@@@│\n' +

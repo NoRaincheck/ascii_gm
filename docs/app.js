@@ -233,14 +233,10 @@ function buildPortraitGenData() {
 }
 function buildLandscapeGenData() {
   const genData = {};
-  genData["low_odds"] = ["{low_odd}{odds_modifier}"];
-  genData["hi_odds"] = ["{hi_odd}{odds_modifier}"];
-  genData["odds_modifier"] = { "1": "?", "2-5": " ", "6": "!" };
-  genData["low_odd"] = { "1-4": "N", "5-6": "Y" };
-  genData["hi_odd"] = { "1-2": "N", "3-6": "Y" };
   genData["d4"] = diceRange(4).map((x) => x.padStart(2, "0"));
   genData["d6"] = diceRange(6).map((x) => x.padStart(2, "0"));
-  genData["d8"] = diceRange(8).map((x) => x.padStart(2, "0").padStart(3, " "));
+  genData["d8"] = diceRange(8).map((x) => x.padStart(2, "0"));
+  genData["d10"] = diceRange(10).map((x) => x.padStart(2, "0"));
   genData["d12"] = diceRange(12).map((x) => x.padStart(2, "0"));
   genData["d20"] = diceRange(20).map((x) => x.padStart(2, "0"));
   genData["d100"] = Array.from({ length: 100 }, (_, i) => String(i + 1).padStart(3, " "));
@@ -304,8 +300,8 @@ function buildLandscapeGenData() {
   genData["card"] = [
     [
       "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510",
-      "\u2502LO:{low_odds} D4 :{d4} D6 :{d6} D8  :{d8}\u2502",
-      "\u2502HI:{hi_odds} D12:{d12} D20:{d20} D100:{d100}\u2502",
+      "\u2502 D4 :{d4} D6 :{d6} D8 :{d8} D10:{d10}\u2502",
+      "\u2502  D12 :{d12} D20 :{d20} D100:{d100}  \u2502",
       "\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524",
       "\u2502EVT:  {action}  {detail}  {topic}\u2502",
       "\u2502QST:  {objective}\u2502",
@@ -338,7 +334,8 @@ var MACCHIATO_COLORS = {
   overlay0: [108, 112, 134],
   text: [202, 211, 245],
   blue: [138, 173, 244],
-  rosewater: [245, 169, 185]
+  rosewater: [245, 169, 185],
+  peach: [245, 194, 117]
 };
 var LATTE_COLORS = {
   crust: [220, 213, 197],
@@ -346,7 +343,8 @@ var LATTE_COLORS = {
   overlay0: [156, 150, 136],
   text: [76, 79, 105],
   blue: [30, 102, 245],
-  rosewater: [220, 138, 120]
+  rosewater: [220, 138, 120],
+  peach: [254, 128, 25]
 };
 function getColors(theme) {
   return theme === "macchiato" ? MACCHIATO_COLORS : LATTE_COLORS;
@@ -356,7 +354,8 @@ function getPalette(theme = "macchiato") {
   return {
     positive: c.blue,
     negative: c.rosewater,
-    neutral: c.overlay0
+    neutral: c.overlay0,
+    peach: c.peach
   };
 }
 function getPngColors(theme = "macchiato") {
@@ -408,11 +407,10 @@ var FIELD_POSITIONS = [
   [16, 4, 17, "vice"]
 ];
 var LANDSCAPE_FIELD_CATEGORY = {
-  low_odds: "yesno",
-  hi_odds: "yesno",
   d4: "neutral",
   d6: "neutral",
   d8: "neutral",
+  d10: "neutral",
   d12: "neutral",
   d20: "neutral",
   d100: "neutral",
@@ -427,14 +425,13 @@ var LANDSCAPE_FIELD_CATEGORY = {
   vice: "negative"
 };
 var LANDSCAPE_FIELD_POSITIONS = [
-  [1, 4, 2, "low_odds"],
-  [1, 11, 2, "d4"],
-  [1, 18, 2, "d6"],
-  [1, 26, 3, "d8"],
-  [2, 4, 2, "hi_odds"],
-  [2, 11, 2, "d12"],
-  [2, 18, 2, "d20"],
-  [2, 26, 3, "d100"],
+  [1, 6, 2, "d4"],
+  [1, 13, 2, "d6"],
+  [1, 20, 2, "d8"],
+  [1, 27, 2, "d10"],
+  [2, 8, 2, "d12"],
+  [2, 16, 2, "d20"],
+  [2, 24, 3, "d100"],
   [4, 7, 6, "action"],
   [4, 15, 6, "detail"],
   [4, 23, 6, "topic"],
@@ -489,8 +486,42 @@ function getYesnoPrimaries(layout) {
   }
   return YESNO_PRIMARIES_MAPS.get(layout);
 }
+var DICE_MAX = {
+  d4: 4,
+  d6: 6,
+  d8: 8,
+  d10: 10,
+  d12: 12,
+  d20: 20,
+  d00: 99,
+  d100: 100
+};
+var DICE_SPANS = /* @__PURE__ */ new Map();
+function getDiceSpans(layout) {
+  if (!DICE_SPANS.has(layout)) {
+    const map = /* @__PURE__ */ new Map();
+    for (const [line, col, length, fieldName] of getFieldPositions(layout)) {
+      if (DICE_MAX[fieldName] !== void 0) {
+        map.set(fieldName, [line, col, length]);
+      }
+    }
+    DICE_SPANS.set(layout, map);
+  }
+  return DICE_SPANS.get(layout);
+}
+function resolveDiceCategory(fieldName, cardLines, layout) {
+  const span = getDiceSpans(layout).get(fieldName);
+  if (!span) return null;
+  const [line, col, length] = span;
+  const value = parseInt(cardLines[line]?.slice(col, col + length) ?? "", 10);
+  if (Number.isNaN(value)) return null;
+  const threshold = Math.ceil(DICE_MAX[fieldName] / 2);
+  return value >= threshold ? "positive" : "peach";
+}
 function resolveCategory(lineIdx, colIdx, fieldName, cardLines, layout) {
   const cat = getFieldCategory(layout)[fieldName] ?? "neutral";
+  const diceCat = resolveDiceCategory(fieldName, cardLines, layout);
+  if (diceCat) return diceCat;
   if (cat !== "yesno") return cat;
   const char = cardLines[lineIdx]?.[colIdx] ?? "";
   if (char === "Y" || char === "N") return char === "Y" ? "positive" : "negative";
@@ -510,7 +541,7 @@ function getFieldColor(lineIdx, colIdx, cardLines, palette, theme = "macchiato",
   return palette[cat] ?? palette.neutral;
 }
 var TEMPLATE_TEXT = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502low:@@  d4 @  d12 @@\u2502\n\u251C\u2500\u2500\u2500:@@  d6 @  d20 @@\u2502\n\u2502hi :@@  d8 @  d00 @@\u2502\n\u2502                    \u2502\n\u2502@@@@@@ @@@@@@ @@@@@@\u2502\n\u2502                    \u2502\n\u2502OB:@@@@@@@@@@@@@@@@@\u2502\n\u2502AD:@@@@@@@@@@@@@@@@@\u2502\n\u2502EV:@@@@@@@@@@@@@@@@@\u2502\n\u2502                    \u2502\n\u2502NM:@@@@@@@@@@@@@@@@@\u2502\n\u2502JB:@@@@@@@@@@@@@@@@@\u2502\n\u2502GL:@@@@@@@@@@@@@@@@@\u2502\n\u2502                    \u2502\n\u2502VT:@@@@@@@@@@@@@@@@@\u2502\n\u2502VC:@@@@@@@@@@@@@@@@@\u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
-var LANDSCAPE_TEMPLATE_TEXT = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502LO:@@ D4 :@@ D6 :@@ D8  :@@@\u2502\n\u2502HI:@@ D12:@@ D20:@@ D100:@@@\u2502\n\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n\u2502EVT:  @@@@@@  @@@@@@  @@@@@@\u2502\n\u2502QST:  @@@@@@@@@@@@@@@@@@@@@@\u2502\n\u2502FOE:  @@@@@@@@@@@@@@@@@@@@@@\u2502\n\u2502NAME: @@@@@@   JOB: @@@@@@@ \u2502\n\u2502VIRT: @@@@@@   VICE: @@@@@@ \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
+var LANDSCAPE_TEMPLATE_TEXT = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 D4 :@@ D6 :@@ D8 :@@ D10:@@\u2502\n\u2502  D12 :@@ D20 :@@ D100:@@@  \u2502\n\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n\u2502EVT:  @@@@@@  @@@@@@  @@@@@@\u2502\n\u2502QST:  @@@@@@@@@@@@@@@@@@@@@@\u2502\n\u2502FOE:  @@@@@@@@@@@@@@@@@@@@@@\u2502\n\u2502NAME: @@@@@@   JOB: @@@@@@@ \u2502\n\u2502VIRT: @@@@@@   VICE: @@@@@@ \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
 function getTemplateText(layout = "portrait") {
   return layout === "landscape" ? LANDSCAPE_TEMPLATE_TEXT : TEMPLATE_TEXT;
 }
