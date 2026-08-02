@@ -753,7 +753,7 @@ async function init() {
   newCard();
   generateBtn.addEventListener("click", newCard);
   themeSelect.addEventListener("change", renderAllCards);
-  layoutSelect.addEventListener("change", renderAllCards);
+  layoutSelect.addEventListener("change", switchLayout);
   modeToggle.addEventListener("click", toggleMode);
   document.addEventListener("keydown", handleKeyDown);
 }
@@ -778,6 +778,10 @@ function newCard() {
   currentCard = generateCard(layoutSelect.value);
   cards.push({ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value });
   renderAllCards();
+}
+function switchLayout() {
+  cards = [];
+  newCard();
 }
 function renderAllCards() {
   cardContainer.innerHTML = "";
