@@ -12,7 +12,7 @@ const modeLabel = document.getElementById('mode-label');
 let currentCard = '';
 let imageMode = true;
 let spritesheetLoaded = false;
-let cards = []; // array of { cardText, theme, layout }
+let cards = []; // single { cardText, theme, layout } - only the latest card
 
 async function init() {
   await loadOraclesJSON();
@@ -20,7 +20,7 @@ async function init() {
   newCard();
   generateBtn.addEventListener('click', newCard);
   themeSelect.addEventListener('change', renderAllCards);
-  layoutSelect.addEventListener('change', switchLayout);
+  layoutSelect.addEventListener('change', newCard);
   modeToggle.addEventListener('click', toggleMode);
   document.addEventListener('keydown', handleKeyDown);
 }
@@ -47,13 +47,8 @@ async function loadSpritesheet() {
 
 function newCard() {
   currentCard = generateCard(layoutSelect.value);
-  cards.push({ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value });
+  cards = [{ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value }];
   renderAllCards();
-}
-
-function switchLayout() {
-  cards = [];
-  newCard();
 }
 
 function renderAllCards() {

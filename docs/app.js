@@ -753,7 +753,7 @@ async function init() {
   newCard();
   generateBtn.addEventListener("click", newCard);
   themeSelect.addEventListener("change", renderAllCards);
-  layoutSelect.addEventListener("change", switchLayout);
+  layoutSelect.addEventListener("change", newCard);
   modeToggle.addEventListener("click", toggleMode);
   document.addEventListener("keydown", handleKeyDown);
 }
@@ -776,12 +776,8 @@ async function loadSpritesheet() {
 }
 function newCard() {
   currentCard = generateCard(layoutSelect.value);
-  cards.push({ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value });
+  cards = [{ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value }];
   renderAllCards();
-}
-function switchLayout() {
-  cards = [];
-  newCard();
 }
 function renderAllCards() {
   cardContainer.innerHTML = "";
