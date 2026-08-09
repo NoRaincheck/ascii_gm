@@ -97,3 +97,26 @@ button:hover, select:hover {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
   flex-shrink: 0;
 }
+
+#game-container {
+  margin-top: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.game-hint {
+  font-size: 0.75rem;
+  color: #a6adc8;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+#game-container canvas {
+  image-rendering: pixelated;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}

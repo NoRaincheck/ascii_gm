@@ -26,6 +26,15 @@ async function main() {
   await Deno.copyFile('wang_3050_BIOS_ROM__8x16.png', `${DOCS}/spritesheet.png`);
   await Deno.copyFile('ironsworn_oracles.json', `${DOCS}/ironsworn_oracles.json`);
 
+  const gameAssets = {
+    'tiny-swords/Factions/Knights/Troops/Warrior/Blue/Warrior_Blue.png': `${DOCS}/warrior_blue.png`,
+    'tiny-swords/Factions/Knights/Buildings/House/House_Blue.png': `${DOCS}/house_blue.png`,
+    'tiny-swords/Resources/Trees/Tree.png': `${DOCS}/tree.png`,
+  };
+  for (const [src, dst] of Object.entries(gameAssets)) {
+    await Deno.copyFile(src, dst);
+  }
+
   console.log('Assets copied to docs/');
   console.log('Done. Serve docs/ as a static site for GitHub Pages.');
 }
