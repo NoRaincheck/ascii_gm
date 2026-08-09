@@ -140148,7 +140148,7 @@ function movePlayer(world, dx, dy, step) {
 var GRASS = 8761686;
 var MAP_SIZE = 16;
 var SPEED = 200;
-var ZOOM = 0.25;
+var ZOOM = 0.5;
 var WORLD_W = MAP_SIZE * TILE;
 var WORLD_H = MAP_SIZE * TILE;
 var SPRITE_POS = {
