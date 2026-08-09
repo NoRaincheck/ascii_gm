@@ -139909,17 +139909,31 @@ var import_phaser = __toESM(require_phaser());
 
 // lib/game.ts
 var TILE = 64;
-var CHAR_RECT = { x: -7, y: -83, w: 78, h: 91 };
-var TREE_RECT = { x: -21, y: -124, w: 111, h: 174 };
-var HOUSE_RECT = { x: 10, y: -40, w: 108, h: 148 };
-function charRect(x, y) {
-  return { x: x * TILE + CHAR_RECT.x, y: y * TILE + CHAR_RECT.y, w: CHAR_RECT.w, h: CHAR_RECT.h };
+var BODY = { x: -20, y: -36, w: 40, h: 36 };
+var CHAR_CONTENT = { x: -39, y: -91, w: 78, h: 91 };
+var TREE_BASE = { x: -20, y: -16, w: 40, h: 16 };
+var HOUSE_BASE = { x: -54, y: -16, w: 108, h: 16 };
+function charRect(px, py) {
+  return { x: px + CHAR_CONTENT.x, y: py + CHAR_CONTENT.y, w: CHAR_CONTENT.w, h: CHAR_CONTENT.h };
 }
-function treeRect(tx, ty) {
-  return { x: tx * TILE + 32 + TREE_RECT.x, y: ty * TILE + 64 + TREE_RECT.y, w: TREE_RECT.w, h: TREE_RECT.h };
+function bodyRect(px, py) {
+  return { x: px + BODY.x, y: py + BODY.y, w: BODY.w, h: BODY.h };
 }
-function houseRect(bx, by) {
-  return { x: bx * TILE + 64 + HOUSE_RECT.x, y: (by + 2) * TILE + HOUSE_RECT.y, w: HOUSE_RECT.w, h: HOUSE_RECT.h };
+function treeBase(t) {
+  const cx = t.x * TILE + 66;
+  const bottom = t.y * TILE + 114;
+  return { x: cx + TREE_BASE.x, y: bottom + TREE_BASE.y, w: TREE_BASE.w, h: TREE_BASE.h };
+}
+function houseBase(b) {
+  const cx = b.x * TILE + 128;
+  const bottom = b.y * TILE + 236;
+  return { x: cx + HOUSE_BASE.x, y: bottom + HOUSE_BASE.y, w: HOUSE_BASE.w, h: HOUSE_BASE.h };
+}
+function treeContent(t) {
+  return { x: t.x * TILE + 11, y: t.y * TILE - 60, w: 111, h: 174 };
+}
+function houseContent(b) {
+  return { x: b.x * TILE + 74, y: b.y * TILE + 88, w: 108, h: 148 };
 }
 function intersects(a, b) {
   return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
@@ -139944,78 +139958,46 @@ function createRng(seed) {
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
-function canOccupy(world, x, y) {
-  if (!inBounds(charRect(x, y), world.width, world.height)) return false;
+function canOccupyAt(world, px, py) {
+  if (!inBounds(charRect(px, py), world.width, world.height)) return false;
+  const body = bodyRect(px, py);
   for (const t of world.trees) {
-    if (intersects(charRect(x, y), treeRect(t.x, t.y))) return false;
+    if (intersects(body, treeBase(t))) return false;
   }
   for (const b of world.buildings) {
-    if (intersects(charRect(x, y), houseRect(b.x, b.y))) return false;
+    if (intersects(body, houseBase(b))) return false;
   }
   return true;
 }
-function obstacleIntersectsObstacle(world, r) {
+function contentOverlaps(world, r) {
   for (const t of world.trees) {
-    if (intersects(r, treeRect(t.x, t.y))) return true;
+    if (intersects(r, treeContent(t))) return true;
   }
   for (const b of world.buildings) {
-    if (intersects(r, houseRect(b.x, b.y))) return true;
+    if (intersects(r, houseContent(b))) return true;
   }
   return false;
 }
-function generateWorld(seed, width = 16, height = 16) {
-  const rand = createRng(seed);
-  const world = { width, height, trees: [], buildings: [], player: { x: 1, y: 1, facing: "down" } };
-  const numTrees = 4 + Math.floor(rand() * 4);
-  let guard = 0;
-  while (world.trees.length < numTrees && guard < 2e3) {
-    guard++;
-    const tx = 1 + Math.floor(rand() * (width - 2));
-    const ty = 2 + Math.floor(rand() * (height - 3));
-    const r = treeRect(tx, ty);
-    if (!inBounds(r, width, height)) continue;
-    if (obstacleIntersectsObstacle(world, r)) continue;
-    world.trees.push({ x: tx, y: ty });
-  }
-  const numBuildings = 1 + Math.floor(rand() * 2);
-  guard = 0;
-  while (world.buildings.length < numBuildings && guard < 2e3) {
-    guard++;
-    const bx = Math.floor(rand() * (width - 1));
-    const by = 1 + Math.floor(rand() * (height - 3));
-    const r = houseRect(bx, by);
-    if (!inBounds(r, width, height)) continue;
-    if (obstacleIntersectsObstacle(world, r)) continue;
-    world.buildings.push({ x: bx, y: by });
-  }
-  let bestScore = -1;
-  let best = { x: 1, y: 1, facing: "down" };
-  for (let attempt = 0; attempt < 1e3; attempt++) {
-    const x = 1 + Math.floor(rand() * (width - 2));
-    const y = 2 + Math.floor(rand() * (height - 3));
-    if (!canOccupy(world, x, y)) continue;
-    const score = reachableArea(world, x, y);
-    if (score > bestScore) {
-      bestScore = score;
-      best = { x, y, facing: "down" };
-      if (score > 60) break;
-    }
-  }
-  world.player = best;
-  return world;
-}
-function reachableArea(world, sx, sy) {
-  const seen = /* @__PURE__ */ new Set([`${sx},${sy}`]);
-  const queue = [[sx, sy]];
+var CELL = 32;
+function reachableAt(world, sx, sy) {
+  const cols = Math.floor(world.width * TILE / CELL);
+  const rows = Math.floor(world.height * TILE / CELL);
+  const blocked = (cx, cy) => !canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2);
+  const startX = Math.floor(sx / CELL);
+  const startY = Math.floor(sy / CELL);
+  if (blocked(startX, startY)) return 0;
+  const seen = /* @__PURE__ */ new Set([`${startX},${startY}`]);
+  const queue = [[startX, startY]];
   let count = 1;
   while (queue.length > 0) {
-    const [x, y] = queue.shift();
+    const [cx, cy] = queue.shift();
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + dx;
-      const ny = y + dy;
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
       const key = `${nx},${ny}`;
       if (seen.has(key)) continue;
-      if (!canOccupy(world, nx, ny)) continue;
+      if (blocked(nx, ny)) continue;
       seen.add(key);
       queue.push([nx, ny]);
       count++;
@@ -140023,24 +140005,149 @@ function reachableArea(world, sx, sy) {
   }
   return count;
 }
-function movePlayer(world, dx, dy) {
+function shuffle(arr, rand) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function generateWorld(seed, width = 16, height = 16) {
+  const rand = createRng(seed);
+  const world = { width, height, trees: [], buildings: [], player: { x: 0, y: 0, facing: "down" } };
+  const treeSlots = shuffle(
+    (() => {
+      const slots = [];
+      for (let ty = 2; ty + 2 < height; ty += 3) {
+        for (let tx = 2; tx + 1 < width; tx += 3) {
+          slots.push([tx, ty]);
+        }
+      }
+      return slots;
+    })(),
+    rand
+  );
+  const numTrees = 5 + Math.floor(rand() * 4);
+  for (const [tx, ty] of treeSlots) {
+    if (world.trees.length >= numTrees) break;
+    const r = treeContent({ x: tx, y: ty });
+    if (!inBounds(r, width, height)) continue;
+    if (contentOverlaps(world, r)) continue;
+    world.trees.push({ x: tx, y: ty });
+  }
+  const numBuildings = 1 + Math.floor(rand() * 2);
+  const houseSlots = shuffle(
+    (() => {
+      const slots = [];
+      for (let by = 2; by + 2 < height; by += 3) {
+        for (let bx = 2; bx + 2 < width; bx += 3) {
+          slots.push([bx, by]);
+        }
+      }
+      return slots;
+    })(),
+    rand
+  );
+  for (const [bx, by] of houseSlots) {
+    if (world.buildings.length >= numBuildings) break;
+    const r = houseContent({ x: bx, y: by });
+    if (!inBounds(r, width, height)) continue;
+    if (contentOverlaps(world, r)) continue;
+    world.buildings.push({ x: bx, y: by });
+  }
+  let bestScore = -1;
+  let best = { x: TILE, y: TILE, facing: "down" };
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const px = TILE + Math.floor(rand() * (width - 2) * TILE / CELL) * CELL + CELL / 2;
+    const py = TILE + Math.floor(rand() * (height - 2) * TILE / CELL) * CELL + CELL / 2;
+    if (!canOccupyAt(world, px, py)) continue;
+    const score = reachableAt(world, px, py);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { x: px, y: py, facing: "down" };
+      if (score > 700) break;
+    }
+  }
+  world.player = best;
+  const reach = /* @__PURE__ */ new Set();
+  (() => {
+    const cols = Math.floor(world.width * TILE / CELL);
+    const rows = Math.floor(world.height * TILE / CELL);
+    const startX = Math.floor(world.player.x / CELL);
+    const startY = Math.floor(world.player.y / CELL);
+    const queue = [[startX, startY]];
+    reach.add(`${startX},${startY}`);
+    while (queue.length > 0) {
+      const [cx, cy] = queue.shift();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        const key = `${nx},${ny}`;
+        if (reach.has(key)) continue;
+        if (!canOccupyAt(world, nx * CELL + CELL / 2, ny * CELL + CELL / 2)) continue;
+        reach.add(key);
+        queue.push([nx, ny]);
+      }
+    }
+  })();
+  const baseReachable = (px, py) => {
+    const cx = Math.floor(px / CELL);
+    const cy = Math.floor(py / CELL);
+    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      if (reach.has(`${cx + dx},${cy + dy}`)) return true;
+    }
+    return false;
+  };
+  world.trees = world.trees.filter((t) => {
+    const b = treeBase(t);
+    return baseReachable(b.x + b.w / 2, b.y + b.h);
+  });
+  world.buildings = world.buildings.filter((b) => {
+    const fb = houseBase(b);
+    return baseReachable(fb.x + fb.w / 2, fb.y + fb.h);
+  });
+  return world;
+}
+function movePlayer(world, dx, dy, step) {
   if (dx < 0) world.player.facing = "left";
   else if (dx > 0) world.player.facing = "right";
   else if (dy < 0) world.player.facing = "up";
   else if (dy > 0) world.player.facing = "down";
-  const nx = world.player.x + dx;
-  const ny = world.player.y + dy;
-  if (!canOccupy(world, nx, ny)) return false;
-  world.player.x = nx;
-  world.player.y = ny;
-  return true;
+  let moved = false;
+  const maxStep = 8;
+  const chunks = Math.max(1, Math.ceil(Math.abs(step) / maxStep));
+  const sub = step / chunks;
+  for (let i = 0; i < chunks; i++) {
+    let stepped = false;
+    if (dx !== 0) {
+      const nx = world.player.x + dx * sub;
+      if (canOccupyAt(world, nx, world.player.y)) {
+        world.player.x = nx;
+        stepped = true;
+        moved = true;
+      }
+    }
+    if (dy !== 0) {
+      const ny = world.player.y + dy * sub;
+      if (canOccupyAt(world, world.player.x, ny)) {
+        world.player.y = ny;
+        stepped = true;
+        moved = true;
+      }
+    }
+    if (!stepped) break;
+  }
+  return moved;
 }
 
 // www/game.ts
 var GRASS = 8761686;
 var MAP_SIZE = 16;
+var SPEED = 200;
 var SPRITE_POS = {
-  warrior: { dx: 26, dy: -32 },
+  warrior: { dx: -6, dy: -40 },
   tree: { dx: 64, dy: 32 },
   house: { dx: 128, dy: 160 }
 };
@@ -140051,7 +140158,6 @@ var GameScene = class extends import_phaser.default.Scene {
     __publicField(this, "world");
     __publicField(this, "player");
     __publicField(this, "keys");
-    __publicField(this, "moving", false);
   }
   preload() {
     this.load.spritesheet("warrior", "warrior_blue.png", { frameWidth: 192, frameHeight: 192 });
@@ -140068,32 +140174,46 @@ var GameScene = class extends import_phaser.default.Scene {
       this.add.sprite(b.x * TILE + SPRITE_POS.house.dx, b.y * TILE + SPRITE_POS.house.dy, "house");
     }
     const p = this.world.player;
-    this.player = this.add.sprite(p.x * TILE + SPRITE_POS.warrior.dx, p.y * TILE + SPRITE_POS.warrior.dy, "warrior", 0).setDepth(10);
+    this.player = this.add.sprite(p.x + SPRITE_POS.warrior.dx, p.y + SPRITE_POS.warrior.dy, "warrior", 0).setDepth(10);
+    if (!this.anims.exists("walk")) {
+      this.anims.create({
+        key: "walk",
+        frames: this.anims.generateFrameNumbers("warrior", { start: 6, end: 11 }),
+        frameRate: 12,
+        repeat: -1
+      });
+    }
+    if (!this.anims.exists("idle")) {
+      this.anims.create({
+        key: "idle",
+        frames: this.anims.generateFrameNumbers("warrior", { start: 0, end: 5 }),
+        frameRate: 4,
+        repeat: -1
+      });
+    }
     this.keys = this.input.keyboard.addKeys("W,A,S,D");
   }
-  update() {
-    if (this.moving) return;
+  update(time, delta) {
     let dx = 0;
     let dy = 0;
-    if (import_phaser.default.Input.Keyboard.JustDown(this.keys.W)) dy = -1;
-    else if (import_phaser.default.Input.Keyboard.JustDown(this.keys.S)) dy = 1;
-    else if (import_phaser.default.Input.Keyboard.JustDown(this.keys.A)) dx = -1;
-    else if (import_phaser.default.Input.Keyboard.JustDown(this.keys.D)) dx = 1;
-    if (dx === 0 && dy === 0) return;
-    if (!movePlayer(this.world, dx, dy)) return;
+    if (this.keys.W.isDown) dy = -1;
+    if (this.keys.S.isDown) dy = 1;
+    if (this.keys.A.isDown) dx = -1;
+    if (this.keys.D.isDown) dx = 1;
     const p = this.world.player;
-    if (dx < 0) this.player.setFlipX(true);
-    else if (dx > 0) this.player.setFlipX(false);
-    this.moving = true;
-    this.tweens.add({
-      targets: this.player,
-      x: p.x * TILE + SPRITE_POS.warrior.dx,
-      y: p.y * TILE + SPRITE_POS.warrior.dy,
-      duration: 120,
-      onComplete: () => {
-        this.moving = false;
-      }
-    });
+    const anim = this.player.anims.getName();
+    if (dx !== 0 || dy !== 0) {
+      const len = Math.hypot(dx, dy);
+      const step = SPEED * Math.min(delta, 50) / 1e3;
+      movePlayer(this.world, dx / len, dy / len, step);
+      if (p.facing === "left") this.player.setFlipX(true);
+      else if (p.facing === "right") this.player.setFlipX(false);
+      if (anim !== "walk") this.player.anims.play("walk");
+    } else if (anim !== "idle") {
+      this.player.anims.play("idle");
+    }
+    this.player.x = p.x + SPRITE_POS.warrior.dx;
+    this.player.y = p.y + SPRITE_POS.warrior.dy;
   }
 };
 var Game = class {
@@ -140112,6 +140232,18 @@ var Game = class {
   get world() {
     const scene = this.phaser.scene.getScene("game");
     return scene ? scene.world : null;
+  }
+  // Direct movement hook for tests/debugging; mirrors the key-driven path.
+  move(dx, dy, step) {
+    const scene = this.phaser.scene.getScene("game");
+    if (!scene) return false;
+    const moved = movePlayer(scene.world, dx, dy, step);
+    const p = scene.world.player;
+    if (p.facing === "left") scene.player.setFlipX(true);
+    else if (p.facing === "right") scene.player.setFlipX(false);
+    scene.player.x = p.x + SPRITE_POS.warrior.dx;
+    scene.player.y = p.y + SPRITE_POS.warrior.dy;
+    return moved;
   }
   regenerate(seed) {
     currentSeed = seed;
