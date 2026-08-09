@@ -76,7 +76,6 @@ button:hover, select:hover {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  width: 100%;
 }
 
 .card-grid {
@@ -116,10 +115,11 @@ button:hover, select:hover {
   align-items: flex-start;
   gap: 1rem;
   justify-content: center;
-  flex-wrap: wrap;
+  min-width: 0;
 }
 
 #main.landscape {
   flex-direction: column;
   align-items: center;
+  justify-content: center;
 }

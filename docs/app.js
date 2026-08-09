@@ -140148,6 +140148,7 @@ function movePlayer(world, dx, dy, step) {
 var GRASS = 8761686;
 var MAP_SIZE = 16;
 var SPEED = 200;
+var ZOOM = 0.25;
 var WORLD_W = MAP_SIZE * TILE;
 var WORLD_H = MAP_SIZE * TILE;
 var SPRITE_POS = {
@@ -140180,6 +140181,7 @@ var GameScene = class extends import_phaser.default.Scene {
     }
     const p = this.world.player;
     this.player = this.add.sprite(p.x + SPRITE_POS.warrior.dx, p.y + SPRITE_POS.warrior.dy, "warrior", 0).setDepth(10);
+    this.cameras.main.setZoom(ZOOM);
     this.cameras.main.centerOn(p.x, p.y);
     if (!this.anims.exists("walk")) {
       this.anims.create({

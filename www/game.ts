@@ -5,6 +5,7 @@ import type { World } from '../lib/game.ts';
 const GRASS = 0x85b156;
 const MAP_SIZE = 16;
 const SPEED = 200; // px per second
+const ZOOM = 0.25; // zoom out to show more of the world
 const WORLD_W = MAP_SIZE * TILE; // 1024
 const WORLD_H = MAP_SIZE * TILE; // 1024
 
@@ -59,6 +60,7 @@ class GameScene extends Phaser.Scene {
       .setDepth(10);
 
     // Center camera on player
+    this.cameras.main.setZoom(ZOOM);
     this.cameras.main.centerOn(p.x, p.y);
 
     // Row 0 = idle (6 frames), row 1 = walk/run cycle (6 frames). All rows
