@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { generateWorld, hashString, movePlayer, TILE } from '../lib/game.ts';
+import { BUILDING_TYPES, generateWorld, hashString, movePlayer, TILE, type BuildingType } from '../lib/game.ts';
 import type { World } from '../lib/game.ts';
 
 const GRASS = 0x85b156;
@@ -38,7 +38,9 @@ class GameScene extends Phaser.Scene {
   preload() {
     this.load.spritesheet('warrior', 'warrior_blue.png', { frameWidth: 192, frameHeight: 192 });
     this.load.spritesheet('tree', 'Tree.png', { frameWidth: 192, frameHeight: 192 });
-    this.load.image('house', 'house_blue.png');
+    for (const type of BUILDING_TYPES) {
+      this.load.image(type, `${type}_blue.png`);
+    }
   }
 
   create() {
@@ -66,7 +68,7 @@ class GameScene extends Phaser.Scene {
       tree.play('tree');
     }
     for (const b of this.world.buildings) {
-      this.add.sprite(b.x * TILE + SPRITE_POS.house.dx, b.y * TILE + SPRITE_POS.house.dy, 'house');
+      this.add.sprite(b.x * TILE + SPRITE_POS.house.dx, b.y * TILE + SPRITE_POS.house.dy, b.type);
     }
     const p = this.world.player;
     this.player = this.add

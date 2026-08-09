@@ -3,9 +3,14 @@ export interface Tree {
   y: number;
 }
 
+export type BuildingType = 'house' | 'tower' | 'castle';
+
+export const BUILDING_TYPES: BuildingType[] = ['house', 'tower', 'castle'];
+
 export interface Building {
   x: number;
   y: number;
+  type: BuildingType;
 }
 
 export interface Player {
@@ -204,7 +209,8 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     const r = houseContent({ x: bx, y: by });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
-    world.buildings.push({ x: bx, y: by });
+    const type = BUILDING_TYPES[Math.floor(rand() * BUILDING_TYPES.length)];
+    world.buildings.push({ x: bx, y: by, type });
   }
 
   // Spawn on the most open connected area.
