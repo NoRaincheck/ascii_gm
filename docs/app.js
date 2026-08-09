@@ -140166,15 +140166,28 @@ var GameScene = class extends import_phaser.default.Scene {
   }
   preload() {
     this.load.spritesheet("warrior", "warrior_blue.png", { frameWidth: 192, frameHeight: 192 });
-    this.load.spritesheet("tree", "tree.png", { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet("tree", "Tree.png", { frameWidth: 192, frameHeight: 192 });
     this.load.image("house", "house_blue.png");
   }
   create() {
     this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
     this.cameras.main.setBackgroundColor(GRASS);
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    if (!this.anims.exists("tree")) {
+      this.anims.create({
+        key: "tree",
+        frames: this.anims.generateFrameNumbers("tree", { start: 0, end: 3 }),
+        frameRate: 6,
+        repeat: -1
+      });
+    }
     for (const t of this.world.trees) {
-      this.add.sprite(t.x * TILE + SPRITE_POS.tree.dx, t.y * TILE + SPRITE_POS.tree.dy, "tree", 0);
+      const tree = this.add.sprite(
+        t.x * TILE + SPRITE_POS.tree.dx,
+        t.y * TILE + SPRITE_POS.tree.dy,
+        "tree"
+      );
+      tree.play("tree");
     }
     for (const b of this.world.buildings) {
       this.add.sprite(b.x * TILE + SPRITE_POS.house.dx, b.y * TILE + SPRITE_POS.house.dy, "house");
