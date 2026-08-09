@@ -41,8 +41,8 @@ const CHAR_CONTENT: Rect = { x: -39, y: -91, w: 78, h: 91 };
 // through the tree trunk or the building walls. Anchored at each landmark's
 // bottom-center (tree: cx=tx*64+66, bottom=ty*64+114; house: cx=bx*64+128,
 // bottom=by*64+236), derived from the measured solid parts of the sprites.
-const TREE_SOLID: Rect = { x: -20, y: -16, w: 40, h: 16 };
-const HOUSE_SOLID: Rect = { x: -54, y: -16, w: 108, h: 16 };
+const TREE_SOLID: Rect = { x: -26, y: -148, w: 52, h: 148 };
+const HOUSE_SOLID: Rect = { x: -54, y: -148, w: 108, h: 148 };
 
 function charRect(px: number, py: number): Rect {
   return { x: px + CHAR_CONTENT.x, y: py + CHAR_CONTENT.y, w: CHAR_CONTENT.w, h: CHAR_CONTENT.h };

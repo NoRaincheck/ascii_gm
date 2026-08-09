@@ -139911,8 +139911,8 @@ var import_phaser = __toESM(require_phaser());
 var TILE = 64;
 var BODY = { x: -20, y: -36, w: 40, h: 36 };
 var CHAR_CONTENT = { x: -39, y: -91, w: 78, h: 91 };
-var TREE_SOLID = { x: -20, y: -16, w: 40, h: 16 };
-var HOUSE_SOLID = { x: -54, y: -16, w: 108, h: 16 };
+var TREE_SOLID = { x: -26, y: -148, w: 52, h: 148 };
+var HOUSE_SOLID = { x: -54, y: -148, w: 108, h: 148 };
 function charRect(px, py) {
   return { x: px + CHAR_CONTENT.x, y: py + CHAR_CONTENT.y, w: CHAR_CONTENT.w, h: CHAR_CONTENT.h };
 }
