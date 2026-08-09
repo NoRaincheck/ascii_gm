@@ -76,7 +76,6 @@ button:hover, select:hover {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  min-height: 400px;
   width: 100%;
 }
 
@@ -91,7 +90,7 @@ button:hover, select:hover {
 
 .card-canvas {
   image-rendering: pixelated;
-  width: 360px;
+  width: auto;
   height: auto;
   border-radius: 8px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
@@ -99,24 +98,28 @@ button:hover, select:hover {
 }
 
 #game-container {
-  margin-top: 2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.game-hint {
-  font-size: 0.75rem;
-  color: #a6adc8;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-}
-
 #game-container canvas {
   image-rendering: pixelated;
-  width: 100%;
-  max-width: 640px;
-  height: auto;
   border-radius: 8px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Layout wrapper: side-by-side for portrait, stacked for landscape */
+#main {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+#main.landscape {
+  flex-direction: column;
+  align-items: center;
 }

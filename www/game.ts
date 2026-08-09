@@ -5,6 +5,8 @@ import type { World } from '../lib/game.ts';
 const GRASS = 0x85b156;
 const MAP_SIZE = 16;
 const SPEED = 200; // px per second
+const WORLD_W = MAP_SIZE * TILE; // 1024
+const WORLD_H = MAP_SIZE * TILE; // 1024
 
 // Sprite center offsets so the visible content lands on the player's (feet)
 // position and landmark tiles, matching the collision rects in lib/game.ts.
@@ -42,6 +44,9 @@ class GameScene extends Phaser.Scene {
     this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
     this.cameras.main.setBackgroundColor(GRASS);
 
+    // Set world bounds to full world size
+    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+
     for (const t of this.world.trees) {
       this.add.sprite(t.x * TILE + SPRITE_POS.tree.dx, t.y * TILE + SPRITE_POS.tree.dy, 'tree', 0);
     }
@@ -52,6 +57,9 @@ class GameScene extends Phaser.Scene {
     this.player = this.add
       .sprite(p.x + SPRITE_POS.warrior.dx, p.y + SPRITE_POS.warrior.dy, 'warrior', 0)
       .setDepth(10);
+
+    // Center camera on player
+    this.cameras.main.centerOn(p.x, p.y);
 
     // Row 0 = idle (6 frames), row 1 = walk/run cycle (6 frames). All rows
     // share the same feet baseline within the cell, so the sprite offset above
@@ -100,19 +108,26 @@ class GameScene extends Phaser.Scene {
 
     this.player.x = p.x + SPRITE_POS.warrior.dx;
     this.player.y = p.y + SPRITE_POS.warrior.dy;
+
+    // Keep camera centered on player
+    this.cameras.main.centerOn(p.x, p.y);
   }
 }
 
 export class Game {
   private phaser: Phaser.Game;
+  private container: HTMLElement;
+  private currentCardWidth = WORLD_W;
+  private currentCardHeight = WORLD_H;
 
   constructor(container: HTMLElement, seed: number) {
+    this.container = container;
     currentSeed = seed;
     this.phaser = new Phaser.Game({
       type: Phaser.AUTO,
       parent: container,
-      width: MAP_SIZE * TILE,
-      height: MAP_SIZE * TILE,
+      width: WORLD_W,
+      height: WORLD_H,
       backgroundColor: '#85b156',
       scene: GameScene,
     });
@@ -133,6 +148,7 @@ export class Game {
     else if (p.facing === 'right') scene.player.setFlipX(false);
     scene.player.x = p.x + SPRITE_POS.warrior.dx;
     scene.player.y = p.y + SPRITE_POS.warrior.dy;
+    scene.cameras.main.centerOn(p.x, p.y);
     return moved;
   }
 
@@ -142,6 +158,12 @@ export class Game {
     if (scene && scene.scene && scene.scene.restart) {
       scene.scene.restart();
     }
+  }
+
+  resize(cardWidth: number, cardHeight: number) {
+    this.currentCardWidth = cardWidth;
+    this.currentCardHeight = cardHeight;
+    this.phaser.scale.resize(cardWidth, cardHeight);
   }
 }
 

@@ -140148,6 +140148,8 @@ function movePlayer(world, dx, dy, step) {
 var GRASS = 8761686;
 var MAP_SIZE = 16;
 var SPEED = 200;
+var WORLD_W = MAP_SIZE * TILE;
+var WORLD_H = MAP_SIZE * TILE;
 var SPRITE_POS = {
   warrior: { dx: -6, dy: -40 },
   tree: { dx: 64, dy: 32 },
@@ -140169,6 +140171,7 @@ var GameScene = class extends import_phaser.default.Scene {
   create() {
     this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
     this.cameras.main.setBackgroundColor(GRASS);
+    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
     for (const t of this.world.trees) {
       this.add.sprite(t.x * TILE + SPRITE_POS.tree.dx, t.y * TILE + SPRITE_POS.tree.dy, "tree", 0);
     }
@@ -140177,6 +140180,7 @@ var GameScene = class extends import_phaser.default.Scene {
     }
     const p = this.world.player;
     this.player = this.add.sprite(p.x + SPRITE_POS.warrior.dx, p.y + SPRITE_POS.warrior.dy, "warrior", 0).setDepth(10);
+    this.cameras.main.centerOn(p.x, p.y);
     if (!this.anims.exists("walk")) {
       this.anims.create({
         key: "walk",
@@ -140216,17 +140220,22 @@ var GameScene = class extends import_phaser.default.Scene {
     }
     this.player.x = p.x + SPRITE_POS.warrior.dx;
     this.player.y = p.y + SPRITE_POS.warrior.dy;
+    this.cameras.main.centerOn(p.x, p.y);
   }
 };
 var Game = class {
   constructor(container, seed) {
     __publicField(this, "phaser");
+    __publicField(this, "container");
+    __publicField(this, "currentCardWidth", WORLD_W);
+    __publicField(this, "currentCardHeight", WORLD_H);
+    this.container = container;
     currentSeed = seed;
     this.phaser = new import_phaser.default.Game({
       type: import_phaser.default.AUTO,
       parent: container,
-      width: MAP_SIZE * TILE,
-      height: MAP_SIZE * TILE,
+      width: WORLD_W,
+      height: WORLD_H,
       backgroundColor: "#85b156",
       scene: GameScene
     });
@@ -140245,6 +140254,7 @@ var Game = class {
     else if (p.facing === "right") scene.player.setFlipX(false);
     scene.player.x = p.x + SPRITE_POS.warrior.dx;
     scene.player.y = p.y + SPRITE_POS.warrior.dy;
+    scene.cameras.main.centerOn(p.x, p.y);
     return moved;
   }
   regenerate(seed) {
@@ -140254,12 +140264,18 @@ var Game = class {
       scene.scene.restart();
     }
   }
+  resize(cardWidth, cardHeight) {
+    this.currentCardWidth = cardWidth;
+    this.currentCardHeight = cardHeight;
+    this.phaser.scale.resize(cardWidth, cardHeight);
+  }
 };
 function initGame(container, seed) {
   return new Game(container, seed);
 }
 
 // www/app.js
+var mainEl = document.getElementById("main");
 var cardContainer = document.getElementById("card-container");
 var gameContainer = document.getElementById("game-container");
 var generateBtn = document.getElementById("generate-btn");
@@ -140279,10 +140295,27 @@ async function init() {
   window.__game = game;
   newCard();
   generateBtn.addEventListener("click", newCard);
-  themeSelect.addEventListener("change", renderAllCards);
+  themeSelect.addEventListener("change", () => {
+    renderAllCards();
+  });
   layoutSelect.addEventListener("change", newCard);
   modeToggle.addEventListener("click", toggleMode);
   document.addEventListener("keydown", handleKeyDown);
+  updateLayout();
+  requestAnimationFrame(() => {
+    const canvas = document.querySelector(".card-canvas");
+    if (canvas && game) {
+      game.resize(canvas.width, canvas.height);
+    }
+  });
+}
+function updateLayout() {
+  const isLandscape = layoutSelect.value === "landscape";
+  if (isLandscape) {
+    mainEl.classList.add("landscape");
+  } else {
+    mainEl.classList.remove("landscape");
+  }
 }
 async function loadOraclesJSON() {
   const resp = await fetch("ironsworn_oracles.json");
@@ -140305,7 +140338,14 @@ function newCard() {
   currentCard = generateCard(layoutSelect.value);
   cards = [{ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value }];
   renderAllCards();
+  updateLayout();
   if (game) game.regenerate(hashString(currentCard));
+  requestAnimationFrame(() => {
+    const canvas = document.querySelector(".card-canvas");
+    if (canvas && game) {
+      game.resize(canvas.width, canvas.height);
+    }
+  });
 }
 function renderAllCards() {
   cardContainer.innerHTML = "";
@@ -140319,6 +140359,12 @@ function renderAllCards() {
     renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode, cardData.layout);
     grid.appendChild(canvas);
   }
+  requestAnimationFrame(() => {
+    const canvas = document.querySelector(".card-canvas");
+    if (canvas && game) {
+      game.resize(canvas.width, canvas.height);
+    }
+  });
 }
 function toggleMode() {
   imageMode = !imageMode;
