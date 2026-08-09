@@ -37,10 +37,12 @@ const BODY: Rect = { x: -20, y: -36, w: 40, h: 36 };
 // Full sprite content rects (for placement: no overlap, no boundary clip).
 const CHAR_CONTENT: Rect = { x: -39, y: -91, w: 78, h: 91 };
 
-// Ground footprints (short base strips) used for movement collision, so the
-// character can stand beside/in front of (at the bottom of) each landmark.
-const TREE_BASE: Rect = { x: -20, y: -16, w: 40, h: 16 };
-const HOUSE_BASE: Rect = { x: -54, y: -16, w: 108, h: 16 };
+// Solid footprints used for movement collision — the character cannot pass
+// through the tree trunk or the building walls. Anchored at each landmark's
+// bottom-center (tree: cx=tx*64+66, bottom=ty*64+114; house: cx=bx*64+128,
+// bottom=by*64+236), derived from the measured solid parts of the sprites.
+const TREE_SOLID: Rect = { x: -20, y: -16, w: 40, h: 16 };
+const HOUSE_SOLID: Rect = { x: -54, y: -16, w: 108, h: 16 };
 
 function charRect(px: number, py: number): Rect {
   return { x: px + CHAR_CONTENT.x, y: py + CHAR_CONTENT.y, w: CHAR_CONTENT.w, h: CHAR_CONTENT.h };
@@ -50,16 +52,16 @@ function bodyRect(px: number, py: number): Rect {
   return { x: px + BODY.x, y: py + BODY.y, w: BODY.w, h: BODY.h };
 }
 
-function treeBase(t: Tree): Rect {
+function treeSolid(t: Tree): Rect {
   const cx = t.x * TILE + 66;
   const bottom = t.y * TILE + 114;
-  return { x: cx + TREE_BASE.x, y: bottom + TREE_BASE.y, w: TREE_BASE.w, h: TREE_BASE.h };
+  return { x: cx + TREE_SOLID.x, y: bottom + TREE_SOLID.y, w: TREE_SOLID.w, h: TREE_SOLID.h };
 }
 
-function houseBase(b: Building): Rect {
+function houseSolid(b: Building): Rect {
   const cx = b.x * TILE + 128;
   const bottom = b.y * TILE + 236;
-  return { x: cx + HOUSE_BASE.x, y: bottom + HOUSE_BASE.y, w: HOUSE_BASE.w, h: HOUSE_BASE.h };
+  return { x: cx + HOUSE_SOLID.x, y: bottom + HOUSE_SOLID.y, w: HOUSE_SOLID.w, h: HOUSE_SOLID.h };
 }
 
 function treeContent(t: Tree): Rect {
@@ -101,10 +103,10 @@ export function canOccupyAt(world: World, px: number, py: number): boolean {
   if (!inBounds(charRect(px, py), world.width, world.height)) return false;
   const body = bodyRect(px, py);
   for (const t of world.trees) {
-    if (intersects(body, treeBase(t))) return false;
+    if (intersects(body, treeSolid(t))) return false;
   }
   for (const b of world.buildings) {
-    if (intersects(body, houseBase(b))) return false;
+    if (intersects(body, houseSolid(b))) return false;
   }
   return true;
 }
@@ -247,18 +249,22 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   const baseReachable = (px: number, py: number): boolean => {
     const cx = Math.floor(px / CELL);
     const cy = Math.floor(py / CELL);
-    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
-      if (reach.has(`${cx + dx},${cy + dy}`)) return true;
+    // The body is 36px tall, so it must stand a cell or two clear of a large
+    // footprint (e.g. below a house wall) before it can close in on the base.
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (reach.has(`${cx + dx},${cy + dy}`)) return true;
+      }
     }
     return false;
   };
   world.trees = world.trees.filter((t) => {
-    const b = treeBase(t);
-    return baseReachable(b.x + b.w / 2, b.y + b.h);
+    const s = treeSolid(t);
+    return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
   world.buildings = world.buildings.filter((b) => {
-    const fb = houseBase(b);
-    return baseReachable(fb.x + fb.w / 2, fb.y + fb.h);
+    const s = houseSolid(b);
+    return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
 
   return world;
@@ -271,7 +277,7 @@ export function movePlayer(world: World, dx: number, dy: number, step: number): 
   else if (dy > 0) world.player.facing = 'down';
 
   let moved = false;
-  // Sub-step so thin base strips are never tunneled through at low FPS.
+  // Sub-step so solid footprints are never tunneled through at low FPS.
   const maxStep = 8;
   const chunks = Math.max(1, Math.ceil(Math.abs(step) / maxStep));
   const sub = step / chunks;

@@ -139911,23 +139911,23 @@ var import_phaser = __toESM(require_phaser());
 var TILE = 64;
 var BODY = { x: -20, y: -36, w: 40, h: 36 };
 var CHAR_CONTENT = { x: -39, y: -91, w: 78, h: 91 };
-var TREE_BASE = { x: -20, y: -16, w: 40, h: 16 };
-var HOUSE_BASE = { x: -54, y: -16, w: 108, h: 16 };
+var TREE_SOLID = { x: -20, y: -16, w: 40, h: 16 };
+var HOUSE_SOLID = { x: -54, y: -16, w: 108, h: 16 };
 function charRect(px, py) {
   return { x: px + CHAR_CONTENT.x, y: py + CHAR_CONTENT.y, w: CHAR_CONTENT.w, h: CHAR_CONTENT.h };
 }
 function bodyRect(px, py) {
   return { x: px + BODY.x, y: py + BODY.y, w: BODY.w, h: BODY.h };
 }
-function treeBase(t) {
+function treeSolid(t) {
   const cx = t.x * TILE + 66;
   const bottom = t.y * TILE + 114;
-  return { x: cx + TREE_BASE.x, y: bottom + TREE_BASE.y, w: TREE_BASE.w, h: TREE_BASE.h };
+  return { x: cx + TREE_SOLID.x, y: bottom + TREE_SOLID.y, w: TREE_SOLID.w, h: TREE_SOLID.h };
 }
-function houseBase(b) {
+function houseSolid(b) {
   const cx = b.x * TILE + 128;
   const bottom = b.y * TILE + 236;
-  return { x: cx + HOUSE_BASE.x, y: bottom + HOUSE_BASE.y, w: HOUSE_BASE.w, h: HOUSE_BASE.h };
+  return { x: cx + HOUSE_SOLID.x, y: bottom + HOUSE_SOLID.y, w: HOUSE_SOLID.w, h: HOUSE_SOLID.h };
 }
 function treeContent(t) {
   return { x: t.x * TILE + 11, y: t.y * TILE - 60, w: 111, h: 174 };
@@ -139962,10 +139962,10 @@ function canOccupyAt(world, px, py) {
   if (!inBounds(charRect(px, py), world.width, world.height)) return false;
   const body = bodyRect(px, py);
   for (const t of world.trees) {
-    if (intersects(body, treeBase(t))) return false;
+    if (intersects(body, treeSolid(t))) return false;
   }
   for (const b of world.buildings) {
-    if (intersects(body, houseBase(b))) return false;
+    if (intersects(body, houseSolid(b))) return false;
   }
   return true;
 }
@@ -140095,18 +140095,20 @@ function generateWorld(seed, width = 16, height = 16) {
   const baseReachable = (px, py) => {
     const cx = Math.floor(px / CELL);
     const cy = Math.floor(py / CELL);
-    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
-      if (reach.has(`${cx + dx},${cy + dy}`)) return true;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (reach.has(`${cx + dx},${cy + dy}`)) return true;
+      }
     }
     return false;
   };
   world.trees = world.trees.filter((t) => {
-    const b = treeBase(t);
-    return baseReachable(b.x + b.w / 2, b.y + b.h);
+    const s = treeSolid(t);
+    return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
   world.buildings = world.buildings.filter((b) => {
-    const fb = houseBase(b);
-    return baseReachable(fb.x + fb.w / 2, fb.y + fb.h);
+    const s = houseSolid(b);
+    return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
   return world;
 }
