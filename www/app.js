@@ -3,6 +3,7 @@ import { setOracles } from '../lib/oracle_data.ts';
 import { parseSpritesheet, renderCardToCanvas } from '../lib/spritesheet.ts';
 import { initGame, hashString } from './game.ts';
 
+const mainEl = document.getElementById('main');
 const cardContainer = document.getElementById('card-container');
 const gameContainer = document.getElementById('game-container');
 const generateBtn = document.getElementById('generate-btn');
@@ -24,10 +25,29 @@ async function init() {
   window.__game = game;
   newCard();
   generateBtn.addEventListener('click', newCard);
-  themeSelect.addEventListener('change', renderAllCards);
+  themeSelect.addEventListener('change', () => {
+    renderAllCards();
+  });
   layoutSelect.addEventListener('change', newCard);
   modeToggle.addEventListener('click', toggleMode);
   document.addEventListener('keydown', handleKeyDown);
+  updateLayout();
+  // Initial resize after first card render
+  requestAnimationFrame(() => {
+    const canvas = document.querySelector('.card-canvas');
+    if (canvas && game) {
+      game.resize(canvas.width, canvas.height);
+    }
+  });
+}
+
+function updateLayout() {
+  const isLandscape = layoutSelect.value === 'landscape';
+  if (isLandscape) {
+    mainEl.classList.add('landscape');
+  } else {
+    mainEl.classList.remove('landscape');
+  }
 }
 
 async function loadOraclesJSON() {
@@ -54,7 +74,15 @@ function newCard() {
   currentCard = generateCard(layoutSelect.value);
   cards = [{ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value }];
   renderAllCards();
+  updateLayout();
   if (game) game.regenerate(hashString(currentCard));
+  // Resize game to match card dimensions
+  requestAnimationFrame(() => {
+    const canvas = document.querySelector('.card-canvas');
+    if (canvas && game) {
+      game.resize(canvas.width, canvas.height);
+    }
+  });
 }
 
 function renderAllCards() {
@@ -71,6 +99,13 @@ function renderAllCards() {
     renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode, cardData.layout);
     grid.appendChild(canvas);
   }
+  // Resize game to match card dimensions after render
+  requestAnimationFrame(() => {
+    const canvas = document.querySelector('.card-canvas');
+    if (canvas && game) {
+      game.resize(canvas.width, canvas.height);
+    }
+  });
 }
 
 function toggleMode() {
