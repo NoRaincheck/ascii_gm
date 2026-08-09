@@ -1,8 +1,10 @@
 import { generateCard } from '../lib/card.ts';
 import { setOracles } from '../lib/oracle_data.ts';
 import { parseSpritesheet, renderCardToCanvas } from '../lib/spritesheet.ts';
+import { initGame, hashString } from './game.ts';
 
 const cardContainer = document.getElementById('card-container');
+const gameContainer = document.getElementById('game-container');
 const generateBtn = document.getElementById('generate-btn');
 const themeSelect = document.getElementById('theme-select');
 const layoutSelect = document.getElementById('layout-select');
@@ -13,10 +15,13 @@ let currentCard = '';
 let imageMode = true;
 let spritesheetLoaded = false;
 let cards = []; // single { cardText, theme, layout } - only the latest card
+let game;
 
 async function init() {
   await loadOraclesJSON();
   await loadSpritesheet();
+  game = initGame(gameContainer, hashString('seed'));
+  window.__game = game;
   newCard();
   generateBtn.addEventListener('click', newCard);
   themeSelect.addEventListener('change', renderAllCards);
@@ -49,6 +54,7 @@ function newCard() {
   currentCard = generateCard(layoutSelect.value);
   cards = [{ cardText: currentCard, theme: themeSelect.value, layout: layoutSelect.value }];
   renderAllCards();
+  if (game) game.regenerate(hashString(currentCard));
 }
 
 function renderAllCards() {

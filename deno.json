@@ -9,7 +9,8 @@
   },
   "imports": {
     "canvas": "npm:canvas@3.2.3",
-    "esbuild": "npm:esbuild@^0.24.0"
+    "esbuild": "npm:esbuild@^0.24.0",
+    "phaser": "npm:phaser@^3.87.0"
   },
   "fmt": {
     "indentWidth": 2,
