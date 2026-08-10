@@ -13,6 +13,12 @@ export interface Building {
   type: BuildingType;
 }
 
+export interface Deco {
+  x: number;
+  y: number;
+  variant: number;
+}
+
 export interface Player {
   x: number;
   y: number;
@@ -27,6 +33,7 @@ export interface World {
   terrain: TerrainKind[][];
   trees: Tree[];
   buildings: Building[];
+  deco: Deco[];
   player: Player;
 }
 
@@ -97,6 +104,54 @@ function buildingContent(b: Building): Rect {
   return { x: b.x * TILE + c.x, y: b.y * TILE + c.y, w: c.w, h: c.h };
 }
 
+// Grass decoration sprites (assets/Deco/). Each entry is the alpha content rect
+// measured inside its frame (see scripts/bbox_probe.ts). Content is the visible
+// pixels; the frame is the full PNG. Variants are 1-indexed to match the
+// `01.png`…`15.png` filenames. Only single-tile (64x64) sprites are used.
+export interface DecoVariant {
+  frameW: number;
+  frameH: number;
+  content: Rect;
+}
+
+export const DECO_VARIANTS: DecoVariant[] = [
+  { frameW: 64, frameH: 64, content: { x: 25, y: 24, w: 17, h: 19 } },
+  { frameW: 64, frameH: 64, content: { x: 21, y: 20, w: 26, h: 27 } },
+  { frameW: 64, frameH: 64, content: { x: 14, y: 12, w: 38, h: 37 } },
+  { frameW: 64, frameH: 64, content: { x: 24, y: 19, w: 20, h: 18 } },
+  { frameW: 64, frameH: 64, content: { x: 18, y: 18, w: 29, h: 22 } },
+  { frameW: 64, frameH: 64, content: { x: 12, y: 15, w: 44, h: 34 } },
+  { frameW: 64, frameH: 64, content: { x: 16, y: 21, w: 31, h: 22 } },
+  { frameW: 64, frameH: 64, content: { x: 11, y: 17, w: 42, h: 32 } },
+  { frameW: 64, frameH: 64, content: { x: 2, y: 11, w: 61, h: 42 } },
+  { frameW: 64, frameH: 64, content: { x: 22, y: 23, w: 22, h: 23 } },
+  { frameW: 64, frameH: 64, content: { x: 20, y: 15, w: 32, h: 35 } },
+  { frameW: 64, frameH: 64, content: { x: 11, y: 12, w: 40, h: 39 } },
+  { frameW: 64, frameH: 64, content: { x: 5, y: 10, w: 56, h: 45 } },
+  { frameW: 64, frameH: 64, content: { x: 15, y: 16, w: 36, h: 31 } },
+  { frameW: 64, frameH: 64, content: { x: 24, y: 20, w: 24, h: 24 } },
+];
+
+// Frame-center offset (from a tile's top-left) so the sprite's content bottom
+// lands on the tile's bottom-center, the same ground-line rule as landmarks.
+export function decoFrameOffset(variant: number): { dx: number; dy: number } {
+  const v = DECO_VARIANTS[variant - 1];
+  const centerX = v.content.x + v.content.w / 2;
+  const bottomY = v.content.y + v.content.h;
+  return {
+    dx: TILE / 2 - (centerX - v.frameW / 2),
+    dy: TILE - (bottomY - v.frameH / 2),
+  };
+}
+
+export function decoContent(d: Deco): Rect {
+  const v = DECO_VARIANTS[d.variant - 1];
+  const off = decoFrameOffset(d.variant);
+  const fx = off.dx - v.frameW / 2 + v.content.x;
+  const fy = off.dy - v.frameH / 2 + v.content.y;
+  return { x: d.x * TILE + fx, y: d.y * TILE + fy, w: v.content.w, h: v.content.h };
+}
+
 function intersects(a: Rect, b: Rect): boolean {
   return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
 }
@@ -115,6 +170,21 @@ export const EDGE_N = 1;
 export const EDGE_S = 2;
 export const EDGE_W = 4;
 export const EDGE_E = 8;
+
+// True when a land tile (beach/grass) has an orthogonal water (sea/coast)
+// neighbor. Foam is centered on these land tiles: the opaque land tile drawn
+// above hides the foam blob's full center, leaving only the outer foam strips
+// to ripple out over the adjacent water.
+export function landTouchesWater(world: World, tx: number, ty: number): boolean {
+  const kind = terrainAt(world, tx, ty);
+  if (kind !== 'beach' && kind !== 'grass') return false;
+  const neighbors: Array<[number, number]> = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  for (const [dx, dy] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    if (n === 'sea' || n === 'coast') return true;
+  }
+  return false;
+}
 
 // Autotile border mask for a grass/beach tile: a border is drawn on each side
 // where the region meets a "lower" terrain kind — grass against beach/coast/
@@ -304,6 +374,57 @@ function buildIsland(world: World, rand: () => number): void {
       }
     }
   })();
+
+  fillInlandLakes(world);
+}
+
+// Every water tile (sea/coast) must connect to the map border through water.
+// Beach growth can leave a water pocket enclosed by land (an inland lake);
+// flood-fill water from the border and fill any unreached water with grass.
+function fillInlandLakes(world: World): void {
+  const isWater = (tx: number, ty: number): boolean => {
+    const k = terrainAt(world, tx, ty);
+    return k === 'sea' || k === 'coast';
+  };
+  const open: Array<[number, number]> = [];
+  const seen = new Set<string>();
+  for (let tx = 0; tx < world.width; tx++) {
+    for (const ty of [0, world.height - 1]) {
+      if (isWater(tx, ty)) {
+        open.push([tx, ty]);
+        seen.add(`${tx},${ty}`);
+      }
+    }
+  }
+  for (let ty = 0; ty < world.height; ty++) {
+    for (const tx of [0, world.width - 1]) {
+      const key = `${tx},${ty}`;
+      if (isWater(tx, ty) && !seen.has(key)) {
+        open.push([tx, ty]);
+        seen.add(key);
+      }
+    }
+  }
+  while (open.length > 0) {
+    const [cx, cy] = open.pop()!;
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
+      if (!isWater(nx, ny)) continue;
+      const key = `${nx},${ny}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      open.push([nx, ny]);
+    }
+  }
+  for (let ty = 0; ty < world.height; ty++) {
+    for (let tx = 0; tx < world.width; tx++) {
+      if (isWater(tx, ty) && !seen.has(`${tx},${ty}`)) {
+        world.terrain[ty][tx] = 'grass';
+      }
+    }
+  }
 }
 
 // The tile the body stands on at a pixel position (feet + body width probes).
@@ -376,6 +497,37 @@ function rectOnGrass(world: World, r: Rect): boolean {
   return true;
 }
 
+// Scatter decorative sprites over grass only, at most one per 5x5-tile block
+// (~1 per 25-tile box). No collision — the character walks over them. A few
+// candidate tiles are tried per block so one rejected candidate doesn't empty
+// the block, and candidates closer than the block spacing to an already-placed
+// sprite are skipped.
+function placeDeco(world: World, rand: () => number): void {
+  const spacing = 5;
+  world.deco = [];
+  for (let by = 0; by < world.height; by += spacing) {
+    for (let bx = 0; bx < world.width; bx += spacing) {
+      const grass: Array<[number, number]> = [];
+      for (let ty = by; ty < by + spacing && ty < world.height; ty++) {
+        for (let tx = bx; tx < bx + spacing && tx < world.width; tx++) {
+          if (world.terrain[ty][tx] === 'grass') grass.push([tx, ty]);
+        }
+      }
+      if (grass.length === 0) continue;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const [tx, ty] = grass[Math.floor(rand() * grass.length)];
+        const d: Deco = { x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) };        const r = decoContent(d);
+        if (!inBounds(r, world.width, world.height)) continue;
+        if (contentOverlaps(world, r)) continue;
+        if (!rectOnGrass(world, r)) continue;
+        if (world.deco.some((o) => Math.max(Math.abs(o.x - d.x), Math.abs(o.y - d.y)) < spacing)) continue;
+        world.deco.push(d);
+        break;
+      }
+    }
+  }
+}
+
 const CELL = 32;
 
 function reachableAt(world: World, sx: number, sy: number): number {
@@ -416,7 +568,7 @@ function shuffle<T>(arr: T[], rand: () => number): T[] {
 
 export function generateWorld(seed: number, width = 16, height = 16): World {
   const rand = createRng(seed);
-  const world: World = { width, height, terrain: [], trees: [], buildings: [], player: { x: 0, y: 0, facing: 'down' } };
+  const world: World = { width, height, terrain: [], trees: [], buildings: [], deco: [], player: { x: 0, y: 0, facing: 'down' } };
   buildIsland(world, rand);
 
   // Landmarks sit on a lattice so they line up nicely on the grid.
@@ -525,6 +677,8 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     const s = buildingSolid(b);
     return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
+
+  placeDeco(world, rand);
 
   return world;
 }

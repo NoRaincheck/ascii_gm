@@ -139947,6 +139947,39 @@ function buildingContent(b) {
   const c = BUILDING_CONTENT[b.type];
   return { x: b.x * TILE + c.x, y: b.y * TILE + c.y, w: c.w, h: c.h };
 }
+var DECO_VARIANTS = [
+  { frameW: 64, frameH: 64, content: { x: 25, y: 24, w: 17, h: 19 } },
+  { frameW: 64, frameH: 64, content: { x: 21, y: 20, w: 26, h: 27 } },
+  { frameW: 64, frameH: 64, content: { x: 14, y: 12, w: 38, h: 37 } },
+  { frameW: 64, frameH: 64, content: { x: 24, y: 19, w: 20, h: 18 } },
+  { frameW: 64, frameH: 64, content: { x: 18, y: 18, w: 29, h: 22 } },
+  { frameW: 64, frameH: 64, content: { x: 12, y: 15, w: 44, h: 34 } },
+  { frameW: 64, frameH: 64, content: { x: 16, y: 21, w: 31, h: 22 } },
+  { frameW: 64, frameH: 64, content: { x: 11, y: 17, w: 42, h: 32 } },
+  { frameW: 64, frameH: 64, content: { x: 2, y: 11, w: 61, h: 42 } },
+  { frameW: 64, frameH: 64, content: { x: 22, y: 23, w: 22, h: 23 } },
+  { frameW: 64, frameH: 64, content: { x: 20, y: 15, w: 32, h: 35 } },
+  { frameW: 64, frameH: 64, content: { x: 11, y: 12, w: 40, h: 39 } },
+  { frameW: 64, frameH: 64, content: { x: 5, y: 10, w: 56, h: 45 } },
+  { frameW: 64, frameH: 64, content: { x: 15, y: 16, w: 36, h: 31 } },
+  { frameW: 64, frameH: 64, content: { x: 24, y: 20, w: 24, h: 24 } }
+];
+function decoFrameOffset(variant) {
+  const v = DECO_VARIANTS[variant - 1];
+  const centerX = v.content.x + v.content.w / 2;
+  const bottomY = v.content.y + v.content.h;
+  return {
+    dx: TILE / 2 - (centerX - v.frameW / 2),
+    dy: TILE - (bottomY - v.frameH / 2)
+  };
+}
+function decoContent(d) {
+  const v = DECO_VARIANTS[d.variant - 1];
+  const off = decoFrameOffset(d.variant);
+  const fx = off.dx - v.frameW / 2 + v.content.x;
+  const fy = off.dy - v.frameH / 2 + v.content.y;
+  return { x: d.x * TILE + fx, y: d.y * TILE + fy, w: v.content.w, h: v.content.h };
+}
 function intersects(a, b) {
   return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
 }
@@ -139961,6 +139994,16 @@ var EDGE_N = 1;
 var EDGE_S = 2;
 var EDGE_W = 4;
 var EDGE_E = 8;
+function landTouchesWater(world, tx, ty) {
+  const kind = terrainAt(world, tx, ty);
+  if (kind !== "beach" && kind !== "grass") return false;
+  const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  for (const [dx, dy] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    if (n === "sea" || n === "coast") return true;
+  }
+  return false;
+}
 function flatEdgeMask(world, tx, ty, kind) {
   let mask = 0;
   const neighbors = [
@@ -140054,159 +140097,111 @@ function buildIsland(world, rand) {
   }
   (() => {
     const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-    const label = Array.from(
-      { length: world.height },
-      () => new Array(world.width).fill(-1)
-    );
-    let compCount = 0;
-    const compSize = [];
+    const growthPasses = 1 + Math.floor(rand() * 2);
+    for (let pass = 0; pass < growthPasses; pass++) {
+      const beachTiles = [];
+      for (let ty = 0; ty < world.height; ty++) {
+        for (let tx = 0; tx < world.width; tx++) {
+          if (world.terrain[ty][tx] === "beach") beachTiles.push([tx, ty]);
+        }
+      }
+      for (let i = beachTiles.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [beachTiles[i], beachTiles[j]] = [beachTiles[j], beachTiles[i]];
+      }
+      for (const [tx, ty] of beachTiles) {
+        const shuffled = shuffle(neighbors.slice(), rand);
+        for (const [dx, dy] of shuffled) {
+          const nx = tx + dx;
+          const ny = ty + dy;
+          if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
+          if (world.terrain[ny][nx] !== "beach") {
+            world.terrain[ny][nx] = "beach";
+            break;
+          }
+        }
+      }
+    }
+    const visited = /* @__PURE__ */ new Set();
+    const queue = [];
     for (let ty = 0; ty < world.height; ty++) {
       for (let tx = 0; tx < world.width; tx++) {
-        if (world.terrain[ty][tx] !== "beach" || label[ty][tx] !== -1) continue;
-        const q = [[tx, ty]];
-        label[ty][tx] = compCount;
-        let size = 0;
-        while (q.length > 0) {
-          const [cx2, cy2] = q.shift();
-          size++;
-          for (const [dx, dy] of neighbors) {
-            const nk = `${cx2 + dx},${cy2 + dy}`;
-            if (cx2 + dx < 0 || cy2 + dy < 0 || cx2 + dx >= world.width || cy2 + dy >= world.height) continue;
-            if (world.terrain[cy2 + dy][cx2 + dx] !== "beach" || label[cy2 + dy][cx2 + dx] !== -1) continue;
-            label[cy2 + dy][cx2 + dx] = compCount;
-            q.push([cx2 + dx, cy2 + dy]);
-          }
-        }
-        compSize.push(size);
-        compCount++;
-      }
-    }
-    if (compCount <= 1) return;
-    const merged = new Array(compCount).fill(false);
-    let active = compCount;
-    while (active > 1) {
-      let bestDist = Infinity;
-      let bestPair = null;
-      let bestEndpoints = [];
-      const activeIds = new Array(compCount).fill(0).map((_, i) => i).filter((i) => !merged[i]);
-      for (let ai = 0; ai < activeIds.length; ai++) {
-        for (let bi = ai + 1; bi < activeIds.length; bi++) {
-          const a2 = activeIds[ai];
-          const b2 = activeIds[bi];
-          const distMap = Array.from(
-            { length: world.height },
-            () => new Array(world.width).fill(-1)
-          );
-          const fromA2 = compSize[a2] < compSize[b2];
-          const srcComp2 = fromA2 ? a2 : b2;
-          const tgtComp2 = fromA2 ? b2 : a2;
-          const srcQueue = [];
-          for (let ty = 0; ty < world.height; ty++) {
-            for (let tx = 0; tx < world.width; tx++) {
-              if (label[ty][tx] === srcComp2) {
-                srcQueue.push([tx, ty]);
-                distMap[ty][tx] = 0;
-              }
-            }
-          }
-          let foundDist = -1;
-          let bestTx = -1, bestTy = -1;
-          while (srcQueue.length > 0) {
-            const [cx3, cy3] = srcQueue.shift();
-            if (label[cy3][cx3] === tgtComp2) {
-              foundDist = distMap[cy3][cx3];
-              bestTx = cx3;
-              bestTy = cy3;
-              break;
-            }
-            for (const [dx, dy] of neighbors) {
-              const nx = cx3 + dx;
-              const ny = cy3 + dy;
-              if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
-              if (distMap[ny][nx] !== -1) continue;
-              distMap[ny][nx] = distMap[cy3][cx3] + 1;
-              srcQueue.push([nx, ny]);
-            }
-          }
-          if (foundDist > 0 && foundDist < bestDist) {
-            bestDist = foundDist;
-            bestPair = [a2, b2];
-            bestEndpoints = [[bestTx, bestTy, tgtComp2, srcComp2]];
-          }
-        }
-      }
-      if (!bestPair) break;
-      const [ca, cb] = bestPair;
-      const a = bestPair[0];
-      const b = bestPair[1];
-      const fromA = compSize[a] < compSize[b];
-      const srcComp = fromA ? a : b;
-      const tgtComp = fromA ? b : a;
-      const pathDist = Array.from(
-        { length: world.height },
-        () => new Array(world.width).fill(-1)
-      );
-      const pathQueue = [];
-      for (let ty = 0; ty < world.height; ty++) {
-        for (let tx = 0; tx < world.width; tx++) {
-          if (label[ty][tx] === srcComp) {
-            pathQueue.push([tx, ty]);
-            pathDist[ty][tx] = 0;
-          }
-        }
-      }
-      let endX = -1, endY = -1;
-      while (pathQueue.length > 0) {
-        const [cx3, cy3] = pathQueue.shift();
-        if (label[cy3][cx3] === tgtComp) {
-          endX = cx3;
-          endY = cy3;
+        if (world.terrain[ty][tx] === "beach") {
+          queue.push([tx, ty]);
+          visited.add(`${tx},${ty}`);
           break;
         }
-        for (const [dx, dy] of neighbors) {
-          const nx = cx3 + dx;
-          const ny = cy3 + dy;
-          if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
-          if (pathDist[ny][nx] !== -1) continue;
-          pathDist[ny][nx] = pathDist[cy3][cx3] + 1;
-          pathQueue.push([nx, ny]);
+      }
+      if (queue.length > 0) break;
+    }
+    if (queue.length === 0) return;
+    const mainComponent = /* @__PURE__ */ new Set();
+    while (queue.length > 0) {
+      const [cx2, cy2] = queue.shift();
+      mainComponent.add(`${cx2},${cy2}`);
+      for (const [dx, dy] of neighbors) {
+        const key = `${cx2 + dx},${cy2 + dy}`;
+        if (visited.has(key)) continue;
+        if (cx2 + dx < 0 || cy2 + dy < 0 || cx2 + dx >= world.width || cy2 + dy >= world.height) continue;
+        if (world.terrain[cy2 + dy][cx2 + dx] !== "beach") continue;
+        visited.add(key);
+        queue.push([cx2 + dx, cy2 + dy]);
+      }
+    }
+    for (let ty = 0; ty < world.height; ty++) {
+      for (let tx = 0; tx < world.width; tx++) {
+        if (world.terrain[ty][tx] === "beach" && !mainComponent.has(`${tx},${ty}`)) {
+          world.terrain[ty][tx] = "grass";
         }
       }
-      const bridge = [];
-      let cx2 = endX, cy2 = endY;
-      while (pathDist[cy2][cx2] !== 0) {
-        bridge.push([cx2, cy2]);
-        world.terrain[cy2][cx2] = "beach";
-        let bestNx = cx2, bestNy = cy2;
-        let bestNd = pathDist[cy2][cx2];
-        for (const [dx, dy] of neighbors) {
-          const nx = cx2 + dx;
-          const ny = cy2 + dy;
-          if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
-          if (pathDist[ny][nx] >= 0 && pathDist[ny][nx] < bestNd) {
-            bestNd = pathDist[ny][nx];
-            bestNx = nx;
-            bestNy = ny;
-          }
-        }
-        cx2 = bestNx;
-        cy2 = bestNy;
-      }
-      const newLabel = compCount;
-      for (const [tx, ty] of bridge) {
-        label[ty][tx] = newLabel;
-      }
-      for (let ty = 0; ty < world.height; ty++) {
-        for (let tx = 0; tx < world.width; tx++) {
-          if (label[ty][tx] === a || label[ty][tx] === b) label[ty][tx] = newLabel;
-        }
-      }
-      compSize[newLabel] = compSize[a] + compSize[b] + bridge.length;
-      merged[a] = true;
-      merged[b] = true;
-      active--;
     }
   })();
+  fillInlandLakes(world);
+}
+function fillInlandLakes(world) {
+  const isWater = (tx, ty) => {
+    const k = terrainAt(world, tx, ty);
+    return k === "sea" || k === "coast";
+  };
+  const open = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (let tx = 0; tx < world.width; tx++) {
+    for (const ty of [0, world.height - 1]) {
+      if (isWater(tx, ty)) {
+        open.push([tx, ty]);
+        seen.add(`${tx},${ty}`);
+      }
+    }
+  }
+  for (let ty = 0; ty < world.height; ty++) {
+    for (const tx of [0, world.width - 1]) {
+      const key = `${tx},${ty}`;
+      if (isWater(tx, ty) && !seen.has(key)) {
+        open.push([tx, ty]);
+        seen.add(key);
+      }
+    }
+  }
+  while (open.length > 0) {
+    const [cx, cy] = open.pop();
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
+      if (!isWater(nx, ny)) continue;
+      const key = `${nx},${ny}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      open.push([nx, ny]);
+    }
+  }
+  for (let ty = 0; ty < world.height; ty++) {
+    for (let tx = 0; tx < world.width; tx++) {
+      if (isWater(tx, ty) && !seen.has(`${tx},${ty}`)) {
+        world.terrain[ty][tx] = "grass";
+      }
+    }
+  }
 }
 function standingTileKinds(world, px, py) {
   const tiles = [];
@@ -140269,6 +140264,32 @@ function rectOnGrass(world, r) {
   }
   return true;
 }
+function placeDeco(world, rand) {
+  const spacing = 5;
+  world.deco = [];
+  for (let by = 0; by < world.height; by += spacing) {
+    for (let bx = 0; bx < world.width; bx += spacing) {
+      const grass = [];
+      for (let ty = by; ty < by + spacing && ty < world.height; ty++) {
+        for (let tx = bx; tx < bx + spacing && tx < world.width; tx++) {
+          if (world.terrain[ty][tx] === "grass") grass.push([tx, ty]);
+        }
+      }
+      if (grass.length === 0) continue;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const [tx, ty] = grass[Math.floor(rand() * grass.length)];
+        const d = { x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) };
+        const r = decoContent(d);
+        if (!inBounds(r, world.width, world.height)) continue;
+        if (contentOverlaps(world, r)) continue;
+        if (!rectOnGrass(world, r)) continue;
+        if (world.deco.some((o) => Math.max(Math.abs(o.x - d.x), Math.abs(o.y - d.y)) < spacing)) continue;
+        world.deco.push(d);
+        break;
+      }
+    }
+  }
+}
 var CELL = 32;
 function reachableAt(world, sx, sy) {
   const cols = Math.floor(world.width * TILE / CELL);
@@ -140306,7 +140327,7 @@ function shuffle(arr, rand) {
 }
 function generateWorld(seed, width = 16, height = 16) {
   const rand = createRng(seed);
-  const world = { width, height, terrain: [], trees: [], buildings: [], player: { x: 0, y: 0, facing: "down" } };
+  const world = { width, height, terrain: [], trees: [], buildings: [], deco: [], player: { x: 0, y: 0, facing: "down" } };
   buildIsland(world, rand);
   const treeSlots = shuffle(
     (() => {
@@ -140405,6 +140426,7 @@ function generateWorld(seed, width = 16, height = 16) {
     const s = buildingSolid(b);
     return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
+  placeDeco(world, rand);
   return world;
 }
 function movePlayer(world, dx, dy, step) {
@@ -140467,13 +140489,28 @@ var GameScene = class extends import_phaser.default.Scene {
     for (const type of BUILDING_TYPES) {
       this.load.image(type, `${type}_blue.png`);
     }
+    for (let i = 1; i <= 15; i++) {
+      const n = String(i).padStart(2, "0");
+      this.load.image(`deco${n}`, `deco_${n}.png`);
+    }
     this.load.image("flat", "terrain_flat.png");
     this.load.image("water", "water.png");
+    this.load.spritesheet("foam", "foam.png", { frameWidth: 192, frameHeight: 192 });
   }
   create() {
     this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
     this.cameras.main.setBackgroundColor(WATER);
     this.buildTerrain();
+    if (!this.anims.exists("foam")) {
+      this.anims.create({
+        key: "foam",
+        frames: this.anims.generateFrameNumbers("foam", { start: 0, end: 7 }),
+        frameRate: 10,
+        repeat: -1
+      });
+    }
+    this.buildFoam();
+    this.buildDeco();
     if (!this.anims.exists("tree")) {
       this.anims.create({
         key: "tree",
@@ -140535,6 +140572,34 @@ var GameScene = class extends import_phaser.default.Scene {
           layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);
         }
       }
+    }
+  }
+  // Animated foam ripples along the coast. Each 192x192 frame is a foam blob
+  // centered on the frame; a sprite is centered on every land tile that touches
+  // water, so the opaque beach/grass tile drawn above (depth -8/-7) hides the
+  // blob's full center and only the outer foam strips show over the water as
+  // ripples. Start frames are staggered per tile to avoid lockstep animation.
+  buildFoam() {
+    const foamSprites = [];
+    for (let ty = 0; ty < MAP_SIZE; ty++) {
+      for (let tx = 0; tx < MAP_SIZE; tx++) {
+        if (!landTouchesWater(this.world, tx, ty)) continue;
+        const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, "foam");
+        sprite.setDepth(-9);
+        foamSprites.push(sprite);
+      }
+    }
+    foamSprites.forEach((sprite, i) => {
+      sprite.play({ key: "foam", startFrame: i * 3 % 8 });
+    });
+  }
+  // Grass decorations: pure overlay sprites, no collision. Drawn just above the
+  // grass layer but below trees/buildings/player.
+  buildDeco() {
+    for (const d of this.world.deco) {
+      const off = decoFrameOffset(d.variant);
+      const key = `deco${String(d.variant).padStart(2, "0")}`;
+      this.add.sprite(d.x * TILE + off.dx, d.y * TILE + off.dy, key).setDepth(-6);
     }
   }
   update(time, delta) {

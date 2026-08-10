@@ -21,7 +21,7 @@ This skill documents how the ASCII Game Master's companion game (the WASD-explor
 - Keep pure logic in `lib/game.ts` and Phaser/canvas code in `www/game.ts`.
 - Tile grid is **64×64 px** (`TILE = 64`); world is 16×16 tiles by default (1024×1024 canvas).
 - When a card is regenerated, always re-seed the game from the card text via `hashString` — never a fixed seed.
-- The world is an **island**: sea → coast → beach → grass (ellipse rings, `buildIsland`). Coast is currently **unrendered** — it shows only the water fill (see Terrain rendering).
+- The world is an **island**: sea → coast → beach → grass (ellipse rings, `buildIsland`). Coast is rendered with the animated **water foam** overlay (see Terrain rendering).
 - Movement is **sub-grid (pixel)**: continuous WASD at 200 px/s, not tile-snapped and not one-keypress-per-tile. Player position is in **pixels** (feet anchor).
 
 ## Movement & collision model
@@ -63,9 +63,11 @@ All sheets are RGBA 8-bit. Loaded as Phaser spritesheets with 192×192 frames (w
 | Tower | `assets/Factions/Knights/Buildings/Tower/Tower_Blue.png` (128×256) | full | `(7,52)–(120,234)` = 114×183 | `SPRITE_POS.tower = {dx:128, dy:129}` |
 | Castle | `assets/Factions/Knights/Buildings/Castle/Castle_Blue.png` (320×256) | full | `(12,45)–(307,249)` = 296×205 | `SPRITE_POS.castle = {dx:128, dy:114}` |
 | Tree | `assets/Resources/Trees/Tree.png` (768×576, 4×3 grid) | frame 0 = `(0,0,192,192)` | `(43,4)–(153,177)` = 111×174 | `SPRITE_POS.tree = {dx:64, dy:32}` (frame center = tile `+ (64,32)`) |
+| Water foam | `assets/Terrain/Water/Foam/Foam.png` (1536×192, 8 frames) | each frame = `(n*192,0,192,192)` | blob centered on the frame: full center tile + thin strips on the 4 orthogonal neighbors, corners empty | centered on land tile `(tx*64+32, ty*64+32)` at depth −9 (under the land tile, ripples over water) |
 
 - **Warrior**: row 0 is the idle band, row 1 the walk/run cycle; frame 0 = idle. Left-facing is `sprite.setFlipX(true)`.
 - **Tree**: row 2 contains stumps; only frame 0 is used (frames 1–3 share the same baseline).
+- **Water foam**: 8 frames of 192×192, animated at ~10 fps via the `foam` anim key. Sprite content is a blob centered on the frame (not corner tiles), so placement is **per land tile touching water**, not per-corner — see Terrain rendering.
 - **Buildings**: single sprites, load as images. All share the ground anchor content bottom-center `(bx*64+128, by*64+236)`; SPRITE_POS places each frame center so its content bottom-center lands there. Collision solids match the content rects (`BUILDING_SOLID`/`BUILDING_CONTENT` in `lib/game.ts`).
 - Derivation example (warrior): content feet y=136 and horizontal center x=102 within the frame; to land content on the feet position, frame center must sit at `(px + (102-108), py + (136-176)) = (px-6, py-40)`.
 
@@ -76,10 +78,12 @@ Terrain is drawn by `GameScene.buildTerrain()` as stacked Phaser tilemap layers,
 | Depth | Layer | Tileset | Contents |
 |---|---|---|---|
 | -10 | `water` | `water.png` | full-map fill of the deep-sea tile |
+| -9 | `foam` sprites | `Foam.png` | animated foam on shoreline water tiles |
 | -8 | `beach` | `Tilemap_Flat.png` (block at cols 5–8) | sand ring |
 | -7 | `grass` | `Tilemap_Flat.png` (block at cols 0–3) | grass interior |
 
-- `coast` terrain tiles get **no layer** — they show the plain water fill below. `Tilemap_Elevation.png` (foamy coast/foam tiles) is **not used for now**; it is not loaded in `preload()` and not copied by `scripts/build.ts`.
+- Water foam: `GameScene.buildFoam()` places an animated 192×192 `foam` sprite centered on every land tile where `landTouchesWater(world, tx, ty)` is true (beach/grass with an orthogonal sea/coast neighbor). The foam blob is centered under the opaque land tile (depth −9, below beach −8/grass −7), so the full foam center is hidden and only the outer foam strips show as ripples over the adjacent water. Start frames are staggered (`(i * 3) % 8`) so adjacent foam isn't animated in lockstep.
+- `coast` terrain tiles get **no flat layer** — they show the water fill + foam below. `Tilemap_Elevation.png` (elevation/foamy coast tiles) is **not used**; it is not loaded in `preload()` and not copied by `scripts/build.ts`.
 - Camera background is `WATER` (`#47aba9`); beyond-map ocean renders as that color.
 
 ### Tilemap_Flat.png autotile convention
@@ -100,7 +104,7 @@ So the anchor tiles are: (0,0)=N+W, (3,0)=N+W+E, (0,3)=W+N+S, (3,3)=all four.
 
 ### Terrain palette (reference)
 
-- Grass fill: `#85b156` (sheet base `9bb94e`). Sand/beach: `f1da84`/`f8f273`. Deep water: `#47aba9`. Coast (foam, when re-enabled): `Tilemap_Elevation.png`.
+- Grass fill: `#85b156` (sheet base `9bb94e`). Sand/beach: `f1da84`/`f8f273`. Deep water: `#47aba9`. Coast foam: `assets/Terrain/Water/Foam/Foam.png` (animated).
 
 ## Working with sprites
 
