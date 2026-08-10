@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_TYPES, generateWorld, hashString, movePlayer, TILE, type BuildingType } from '../lib/game.ts';
+import { BUILDING_TYPES, type BuildingType, generateWorld, hashString, movePlayer, TILE } from '../lib/game.ts';
 import type { World } from '../lib/game.ts';
 
 const GRASS = 0x85b156;
@@ -13,10 +13,14 @@ const WORLD_H = MAP_SIZE * TILE; // 1024
 // position and landmark tiles, matching the collision rects in lib/game.ts.
 // Warrior: content (63,45)-(141,136) within the 192x192 frame has feet at y=136
 // and horizontal center x=102, so the frame center must sit at (px-6, py-40).
+// Buildings: each frame center is placed so the content bottom-center lands on
+// the shared ground anchor (bx*64+128, by*64+236).
 const SPRITE_POS = {
   warrior: { dx: -6, dy: -40 },
   tree: { dx: 64, dy: 32 },
   house: { dx: 128, dy: 160 },
+  tower: { dx: 128, dy: 129 },
+  castle: { dx: 128, dy: 114 },
 };
 
 let currentSeed = 0;
@@ -68,7 +72,8 @@ class GameScene extends Phaser.Scene {
       tree.play('tree');
     }
     for (const b of this.world.buildings) {
-      this.add.sprite(b.x * TILE + SPRITE_POS.house.dx, b.y * TILE + SPRITE_POS.house.dy, b.type);
+      const pos = SPRITE_POS[b.type];
+      this.add.sprite(b.x * TILE + pos.dx, b.y * TILE + pos.dy, b.type);
     }
     const p = this.world.player;
     this.player = this.add

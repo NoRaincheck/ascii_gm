@@ -28,19 +28,22 @@ This skill documents how the ASCII Game Master's companion game (the WASD-explor
 
 - **Player position**: `world.player.x/y` = feet anchor (bottom-center of the character body) in global pixels.
 - **Character body** (`BODY` = `{x:-20, y:-36, w:40, h:36}`): a compact ground box used for obstacle collision, anchored at the feet. `CHAR_CONTENT` (full visible content, 78×91, offsets `-39,-91`) is used only for boundary checks (no part of the visible character clips the canvas edge).
-- **Ground footprints** (short base strips) are what the character collides with, so it can stand beside/in front of (at the bottom of) each landmark:
-  - Tree base: `{x: tx*64+46, y: ty*64+98, w:40, h:16}` (center x `tx*64+66`, bottom `ty*64+114`).
-  - House base: `{x: bx*64+74, y: by*64+220, w:108, h:16}` (center x `bx*64+128`, bottom `by*64+236`).
-- `canOccupyAt(world, px, py)`: true iff `charRect` is in-bounds and the body doesn't intersect any tree/house base.
-- `movePlayer(world, dx, dy, step)`: axis-separated; splits steps into ≤8px sub-steps so thin base strips are never tunneled through at low FPS.
-- The character can physically reach the bottom of every landmark: base reachability is enforced at generation (unreachable landmarks are dropped). Feet reach the base's top edge (the 36px-tall body can't overlap the 16px strip, so minimum feet-to-base-center distance is ~22px).
+- **Solid footprints** are what the character collides with, so it can stand beside/in front of (at the bottom of) each landmark. Each is anchored at the landmark's bottom-center and covers the opaque trunk/walls:
+  - Tree solid: `{x:-26, y:-148, w:52, h:148}` anchored at `(tx*64+66, ty*64+114)`.
+  - Building solids match each type's content rect (see `BUILDING_SOLID` in `lib/game.ts`), anchored at the shared ground point `(bx*64+128, by*64+236)`.
+- `canOccupyAt(world, px, py)`: true iff `charRect` is in-bounds and the body doesn't intersect any tree/building solid.
+- `movePlayer(world, dx, dy, step)`: axis-separated; splits steps into ≤8px sub-steps so solid footprints are never tunneled through at low FPS.
+- The character can physically reach the bottom of every landmark: base reachability is enforced at generation (unreachable landmarks are dropped).
 
 ## Placement (grid/lattice)
 
-- Trees and houses are placed on a **3-tile lattice** so they line up nicely: tree slots at `(tx,ty)` with `tx,ty ∈ {2,5,8,11}`, houses on the same pattern (2×3 footprint).
+- Trees and buildings are placed on a **3-tile lattice** so they line up nicely: tree slots at `(tx,ty)` with `tx,ty ∈ {2,5,8,11}`, buildings on the same pattern (2×3 footprint).
 - Placement uses the **full sprite content rects** so nothing overlaps or clips:
   - Tree content: `x: tx*64+11, y: ty*64-60, w:111, h:174`.
-  - House content: `x: bx*64+74, y: by*64+88, w:108, h:148`.
+  - Buildings share a single ground anchor — content bottom-center at `bx*64+128, by*64+236` — so they stand on the same ground line. Each type has its own content rect:
+    - House: `x: bx*64+74, y: by*64+88, w:108, h:148`.
+    - Tower: `x: bx*64+71, y: by*64+53, w:114, h:183`.
+    - Castle: `x: bx*64-20, y: by*64+31, w:296, h:205` (wide — blocks neighboring lattice slots).
 - Player spawn picks the most open connected region (BFS on a 32px grid, `reachableAt`); then any landmark whose base isn't reachable is removed.
 
 ## Animation
@@ -51,17 +54,19 @@ This skill documents how the ASCII Game Master's companion game (the WASD-explor
 
 ## Sprite facts (verified against the source PNGs)
 
-All sheets are RGBA 8-bit. Loaded as Phaser spritesheets with 192×192 frames (warrior, tree) or a plain image (house). Faithful sprite placement is computed from the measured **content bboxes** within each frame:
+All sheets are RGBA 8-bit. Loaded as Phaser spritesheets with 192×192 frames (warrior, tree) or a plain image (buildings). Faithful sprite placement is computed from the measured **content bboxes** within each frame (run `scripts/bbox_probe.ts` to regenerate):
 
 | Asset | Source path | Frame/crop | Content bbox (within frame) | Sprite center offset in scene |
 |---|---|---|---|---|
 | Warrior | `tiny-swords/Factions/Knights/Troops/Warrior/Blue/Warrior_Blue.png` (1152×1536, 6×8 grid) | frame 0 = `(0,0,192,192)` | `(63,45)–(141,136)` = 78×91 | `SPRITE_POS.warrior = {dx:-6, dy:-40}` (frame center = feet `+(-6,-40)`) |
-| House | `tiny-swords/Factions/Knights/Buildings/House/House_Blue.png` (128×192) | full | `(10,24)–(118,172)` = 108×148 | `SPRITE_POS.house = {dx:128, dy:160}` (frame center = tile `+ (128,160)`) |
-| Tree | `tiny-swords/Resources/Trees/Tree.png` (768×576, 4×3 grid) | frame 0 = `(0,0,192,192)` | `(43,4)–(154,178)` = 111×174 | `SPRITE_POS.tree = {dx:64, dy:32}` (frame center = tile `+ (64,32)`) |
+| House | `tiny-swords/Factions/Knights/Buildings/House/House_Blue.png` (128×192) | full | `(10,24)–(117,171)` = 108×148 | `SPRITE_POS.house = {dx:128, dy:160}` (frame center = tile `+ (128,160)`) |
+| Tower | `tiny-swords/Factions/Knights/Buildings/Tower/Tower_Blue.png` (128×256) | full | `(7,52)–(120,234)` = 114×183 | `SPRITE_POS.tower = {dx:128, dy:129}` |
+| Castle | `tiny-swords/Factions/Knights/Buildings/Castle/Castle_Blue.png` (320×256) | full | `(12,45)–(307,249)` = 296×205 | `SPRITE_POS.castle = {dx:128, dy:114}` |
+| Tree | `tiny-swords/Resources/Trees/Tree.png` (768×576, 4×3 grid) | frame 0 = `(0,0,192,192)` | `(43,4)–(153,177)` = 111×174 | `SPRITE_POS.tree = {dx:64, dy:32}` (frame center = tile `+ (64,32)`) |
 
 - **Warrior**: row 0 is the idle band, row 1 the walk/run cycle; frame 0 = idle. Left-facing is `sprite.setFlipX(true)`.
-- **Tree**: row 2 contains stumps; only frame 0 is used.
-- **House**: single sprite, load as image.
+- **Tree**: row 2 contains stumps; only frame 0 is used (frames 1–3 share the same baseline).
+- **Buildings**: single sprites, load as images. All share the ground anchor content bottom-center `(bx*64+128, by*64+236)`; SPRITE_POS places each frame center so its content bottom-center lands there. Collision solids match the content rects (`BUILDING_SOLID`/`BUILDING_CONTENT` in `lib/game.ts`).
 - Derivation example (warrior): content feet y=136 and horizontal center x=102 within the frame; to land content on the feet position, frame center must sit at `(px + (102-108), py + (136-176)) = (px-6, py-40)`.
 
 ## Terrain colors
@@ -73,10 +78,10 @@ The ground is a flat fill (Phaser `setBackgroundColor`). `Tilemap_Flat.png` cont
 ## Working with sprites
 
 1. Locate the sheet under `tiny-swords/`.
-2. Verify dimensions; if unsure, decode the PNG (RGBA, filters 0–4) and run an alpha-bbox check to get exact content bounds per frame cell.
+2. Verify dimensions; if unsure, decode the PNG (RGBA, filters 0–4) and run an alpha-bbox check to get exact content bounds per frame cell. `scripts/bbox_probe.ts` does this for all landmarks (pure TS, no native deps).
 3. Register in `GameScene.preload()` and add a `SPRITE_POS` entry in `www/game.ts` (and an animation entry if it's an animation band).
 4. Add the source → `docs/` entry to `gameAssets` in `scripts/build.ts`, then `deno task build`.
-5. Add matching content rect + base footprint + `canOccupyAt`/`movePlayer` handling in `lib/game.ts`.
+5. Add matching content rect + solid footprint + `canOccupyAt`/`movePlayer` handling in `lib/game.ts`.
 6. Add it in the scene's `create()`.
 
 ## Verification
