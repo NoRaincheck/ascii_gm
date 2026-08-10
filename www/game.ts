@@ -41,7 +41,7 @@ class GameScene extends Phaser.Scene {
 
   preload() {
     this.load.spritesheet('warrior', 'warrior_blue.png', { frameWidth: 192, frameHeight: 192 });
-    this.load.spritesheet('tree', 'Tree.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('tree', 'tree.png', { frameWidth: 192, frameHeight: 192 });
     for (const type of BUILDING_TYPES) {
       this.load.image(type, `${type}_blue.png`);
     }
