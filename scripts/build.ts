@@ -29,6 +29,8 @@ async function main() {
   const gameAssets = {
     'tiny-swords/Factions/Knights/Troops/Warrior/Blue/Warrior_Blue.png': `${DOCS}/warrior_blue.png`,
     'tiny-swords/Factions/Knights/Buildings/House/House_Blue.png': `${DOCS}/house_blue.png`,
+    'tiny-swords/Factions/Knights/Buildings/Tower/Tower_Blue.png': `${DOCS}/tower_blue.png`,
+    'tiny-swords/Factions/Knights/Buildings/Castle/Castle_Blue.png': `${DOCS}/castle_blue.png`,
     'tiny-swords/Resources/Trees/Tree.png': `${DOCS}/tree.png`,
   };
   for (const [src, dst] of Object.entries(gameAssets)) {

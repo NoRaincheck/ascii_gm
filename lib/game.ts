@@ -3,9 +3,14 @@ export interface Tree {
   y: number;
 }
 
+export type BuildingType = 'house' | 'tower' | 'castle';
+
+export const BUILDING_TYPES: BuildingType[] = ['house', 'tower', 'castle'];
+
 export interface Building {
   x: number;
   y: number;
+  type: BuildingType;
 }
 
 export interface Player {
@@ -39,10 +44,25 @@ const CHAR_CONTENT: Rect = { x: -39, y: -91, w: 78, h: 91 };
 
 // Solid footprints used for movement collision — the character cannot pass
 // through the tree trunk or the building walls. Anchored at each landmark's
-// bottom-center (tree: cx=tx*64+66, bottom=ty*64+114; house: cx=bx*64+128,
-// bottom=by*64+236), derived from the measured solid parts of the sprites.
+// bottom-center (tree: cx=tx*64+66, bottom=ty*64+114; buildings:
+// cx=bx*64+128, bottom=by*64+236), derived from the measured solid parts of
+// the sprites (see scripts/bbox_probe.ts).
 const TREE_SOLID: Rect = { x: -26, y: -148, w: 52, h: 148 };
-const HOUSE_SOLID: Rect = { x: -54, y: -148, w: 108, h: 148 };
+const BUILDING_SOLID: Record<BuildingType, Rect> = {
+  house: { x: -54, y: -148, w: 108, h: 148 },
+  tower: { x: -57, y: -182, w: 114, h: 183 },
+  castle: { x: -148, y: -204, w: 296, h: 205 },
+};
+
+// Full sprite content rects (for placement: no overlap, no boundary clip).
+// All buildings share the same ground anchor (bottom-center at bx*64+128,
+// by*64+236) so they stand on one ground line; wider buildings just occupy
+// more of the lattice.
+const BUILDING_CONTENT: Record<BuildingType, Rect> = {
+  house: { x: 74, y: 88, w: 108, h: 148 },
+  tower: { x: 71, y: 53, w: 114, h: 183 },
+  castle: { x: -20, y: 31, w: 296, h: 205 },
+};
 
 function charRect(px: number, py: number): Rect {
   return { x: px + CHAR_CONTENT.x, y: py + CHAR_CONTENT.y, w: CHAR_CONTENT.w, h: CHAR_CONTENT.h };
@@ -58,18 +78,20 @@ function treeSolid(t: Tree): Rect {
   return { x: cx + TREE_SOLID.x, y: bottom + TREE_SOLID.y, w: TREE_SOLID.w, h: TREE_SOLID.h };
 }
 
-function houseSolid(b: Building): Rect {
+function buildingSolid(b: Building): Rect {
   const cx = b.x * TILE + 128;
   const bottom = b.y * TILE + 236;
-  return { x: cx + HOUSE_SOLID.x, y: bottom + HOUSE_SOLID.y, w: HOUSE_SOLID.w, h: HOUSE_SOLID.h };
+  const s = BUILDING_SOLID[b.type];
+  return { x: cx + s.x, y: bottom + s.y, w: s.w, h: s.h };
 }
 
 function treeContent(t: Tree): Rect {
   return { x: t.x * TILE + 11, y: t.y * TILE - 60, w: 111, h: 174 };
 }
 
-function houseContent(b: Building): Rect {
-  return { x: b.x * TILE + 74, y: b.y * TILE + 88, w: 108, h: 148 };
+function buildingContent(b: Building): Rect {
+  const c = BUILDING_CONTENT[b.type];
+  return { x: b.x * TILE + c.x, y: b.y * TILE + c.y, w: c.w, h: c.h };
 }
 
 function intersects(a: Rect, b: Rect): boolean {
@@ -106,7 +128,7 @@ export function canOccupyAt(world: World, px: number, py: number): boolean {
     if (intersects(body, treeSolid(t))) return false;
   }
   for (const b of world.buildings) {
-    if (intersects(body, houseSolid(b))) return false;
+    if (intersects(body, buildingSolid(b))) return false;
   }
   return true;
 }
@@ -116,7 +138,7 @@ function contentOverlaps(world: World, r: Rect): boolean {
     if (intersects(r, treeContent(t))) return true;
   }
   for (const b of world.buildings) {
-    if (intersects(r, houseContent(b))) return true;
+    if (intersects(r, buildingContent(b))) return true;
   }
   return false;
 }
@@ -201,10 +223,11 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   );
   for (const [bx, by] of houseSlots) {
     if (world.buildings.length >= numBuildings) break;
-    const r = houseContent({ x: bx, y: by });
+    const type = BUILDING_TYPES[Math.floor(rand() * BUILDING_TYPES.length)];
+    const r = buildingContent({ x: bx, y: by, type });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
-    world.buildings.push({ x: bx, y: by });
+    world.buildings.push({ x: bx, y: by, type });
   }
 
   // Spawn on the most open connected area.
@@ -263,7 +286,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
   world.buildings = world.buildings.filter((b) => {
-    const s = houseSolid(b);
+    const s = buildingSolid(b);
     return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
 

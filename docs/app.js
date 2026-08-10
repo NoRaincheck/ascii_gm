@@ -139908,11 +139908,21 @@ function rgbToCss([r, g, b]) {
 var import_phaser = __toESM(require_phaser());
 
 // lib/game.ts
+var BUILDING_TYPES = ["house", "tower", "castle"];
 var TILE = 64;
 var BODY = { x: -20, y: -36, w: 40, h: 36 };
 var CHAR_CONTENT = { x: -39, y: -91, w: 78, h: 91 };
 var TREE_SOLID = { x: -26, y: -148, w: 52, h: 148 };
-var HOUSE_SOLID = { x: -54, y: -148, w: 108, h: 148 };
+var BUILDING_SOLID = {
+  house: { x: -54, y: -148, w: 108, h: 148 },
+  tower: { x: -57, y: -182, w: 114, h: 183 },
+  castle: { x: -148, y: -204, w: 296, h: 205 }
+};
+var BUILDING_CONTENT = {
+  house: { x: 74, y: 88, w: 108, h: 148 },
+  tower: { x: 71, y: 53, w: 114, h: 183 },
+  castle: { x: -20, y: 31, w: 296, h: 205 }
+};
 function charRect(px, py) {
   return { x: px + CHAR_CONTENT.x, y: py + CHAR_CONTENT.y, w: CHAR_CONTENT.w, h: CHAR_CONTENT.h };
 }
@@ -139924,16 +139934,18 @@ function treeSolid(t) {
   const bottom = t.y * TILE + 114;
   return { x: cx + TREE_SOLID.x, y: bottom + TREE_SOLID.y, w: TREE_SOLID.w, h: TREE_SOLID.h };
 }
-function houseSolid(b) {
+function buildingSolid(b) {
   const cx = b.x * TILE + 128;
   const bottom = b.y * TILE + 236;
-  return { x: cx + HOUSE_SOLID.x, y: bottom + HOUSE_SOLID.y, w: HOUSE_SOLID.w, h: HOUSE_SOLID.h };
+  const s = BUILDING_SOLID[b.type];
+  return { x: cx + s.x, y: bottom + s.y, w: s.w, h: s.h };
 }
 function treeContent(t) {
   return { x: t.x * TILE + 11, y: t.y * TILE - 60, w: 111, h: 174 };
 }
-function houseContent(b) {
-  return { x: b.x * TILE + 74, y: b.y * TILE + 88, w: 108, h: 148 };
+function buildingContent(b) {
+  const c = BUILDING_CONTENT[b.type];
+  return { x: b.x * TILE + c.x, y: b.y * TILE + c.y, w: c.w, h: c.h };
 }
 function intersects(a, b) {
   return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
@@ -139965,7 +139977,7 @@ function canOccupyAt(world, px, py) {
     if (intersects(body, treeSolid(t))) return false;
   }
   for (const b of world.buildings) {
-    if (intersects(body, houseSolid(b))) return false;
+    if (intersects(body, buildingSolid(b))) return false;
   }
   return true;
 }
@@ -139974,7 +139986,7 @@ function contentOverlaps(world, r) {
     if (intersects(r, treeContent(t))) return true;
   }
   for (const b of world.buildings) {
-    if (intersects(r, houseContent(b))) return true;
+    if (intersects(r, buildingContent(b))) return true;
   }
   return false;
 }
@@ -140051,10 +140063,11 @@ function generateWorld(seed, width = 16, height = 16) {
   );
   for (const [bx, by] of houseSlots) {
     if (world.buildings.length >= numBuildings) break;
-    const r = houseContent({ x: bx, y: by });
+    const type = BUILDING_TYPES[Math.floor(rand() * BUILDING_TYPES.length)];
+    const r = buildingContent({ x: bx, y: by, type });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
-    world.buildings.push({ x: bx, y: by });
+    world.buildings.push({ x: bx, y: by, type });
   }
   let bestScore = -1;
   let best = { x: TILE, y: TILE, facing: "down" };
@@ -140107,7 +140120,7 @@ function generateWorld(seed, width = 16, height = 16) {
     return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
   world.buildings = world.buildings.filter((b) => {
-    const s = houseSolid(b);
+    const s = buildingSolid(b);
     return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
   return world;
@@ -140154,7 +140167,9 @@ var WORLD_H = MAP_SIZE * TILE;
 var SPRITE_POS = {
   warrior: { dx: -6, dy: -40 },
   tree: { dx: 64, dy: 32 },
-  house: { dx: 128, dy: 160 }
+  house: { dx: 128, dy: 160 },
+  tower: { dx: 128, dy: 129 },
+  castle: { dx: 128, dy: 114 }
 };
 var currentSeed = 0;
 var GameScene = class extends import_phaser.default.Scene {
@@ -140167,7 +140182,9 @@ var GameScene = class extends import_phaser.default.Scene {
   preload() {
     this.load.spritesheet("warrior", "warrior_blue.png", { frameWidth: 192, frameHeight: 192 });
     this.load.spritesheet("tree", "Tree.png", { frameWidth: 192, frameHeight: 192 });
-    this.load.image("house", "house_blue.png");
+    for (const type of BUILDING_TYPES) {
+      this.load.image(type, `${type}_blue.png`);
+    }
   }
   create() {
     this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
@@ -140190,7 +140207,8 @@ var GameScene = class extends import_phaser.default.Scene {
       tree.play("tree");
     }
     for (const b of this.world.buildings) {
-      this.add.sprite(b.x * TILE + SPRITE_POS.house.dx, b.y * TILE + SPRITE_POS.house.dy, "house");
+      const pos = SPRITE_POS[b.type];
+      this.add.sprite(b.x * TILE + pos.dx, b.y * TILE + pos.dy, b.type);
     }
     const p = this.world.player;
     this.player = this.add.sprite(p.x + SPRITE_POS.warrior.dx, p.y + SPRITE_POS.warrior.dy, "warrior", 0).setDepth(10);
