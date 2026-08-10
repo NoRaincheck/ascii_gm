@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_TYPES, type BuildingType, flatEdgeMask, flatTileIndex, generateWorld, hashString, movePlayer, TILE } from '../lib/game.ts';
+import { BUILDING_TYPES, type BuildingType, flatEdgeMask, flatTileIndex, generateWorld, hashString, landTouchesWater, movePlayer, TILE } from '../lib/game.ts';
 import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
@@ -47,6 +47,7 @@ class GameScene extends Phaser.Scene {
     }
     this.load.image('flat', 'terrain_flat.png');
     this.load.image('water', 'water.png');
+    this.load.spritesheet('foam', 'foam.png', { frameWidth: 192, frameHeight: 192 });
   }
 
   create() {
@@ -59,6 +60,18 @@ class GameScene extends Phaser.Scene {
     // player, and beyond-map ocean renders as the background water color.
 
     this.buildTerrain();
+
+    // Water foam animation: 8 frames of the 192x192 blob sheet (~10 fps).
+    // Registered before buildFoam() so the shoreline sprites can play it.
+    if (!this.anims.exists('foam')) {
+      this.anims.create({
+        key: 'foam',
+        frames: this.anims.generateFrameNumbers('foam', { start: 0, end: 7 }),
+        frameRate: 10,
+        repeat: -1,
+      });
+    }
+    this.buildFoam();
 
     // Tree animation: frames 0-3 (first row of the spritesheet)
     if (!this.anims.exists('tree')) {
@@ -134,6 +147,26 @@ class GameScene extends Phaser.Scene {
         }
       }
     }
+  }
+
+  // Animated foam ripples along the coast. Each 192x192 frame is a foam blob
+  // centered on the frame; a sprite is centered on every land tile that touches
+  // water, so the opaque beach/grass tile drawn above (depth -8/-7) hides the
+  // blob's full center and only the outer foam strips show over the water as
+  // ripples. Start frames are staggered per tile to avoid lockstep animation.
+  private buildFoam() {
+    const foamSprites: Phaser.GameObjects.Sprite[] = [];
+    for (let ty = 0; ty < MAP_SIZE; ty++) {
+      for (let tx = 0; tx < MAP_SIZE; tx++) {
+        if (!landTouchesWater(this.world, tx, ty)) continue;
+        const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, 'foam');
+        sprite.setDepth(-9);
+        foamSprites.push(sprite);
+      }
+    }
+    foamSprites.forEach((sprite, i) => {
+      sprite.play({ key: 'foam', startFrame: (i * 3) % 8 });
+    });
   }
 
   update(time: number, delta: number) {

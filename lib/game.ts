@@ -116,6 +116,21 @@ export const EDGE_S = 2;
 export const EDGE_W = 4;
 export const EDGE_E = 8;
 
+// True when a land tile (beach/grass) has an orthogonal water (sea/coast)
+// neighbor. Foam is centered on these land tiles: the opaque land tile drawn
+// above hides the foam blob's full center, leaving only the outer foam strips
+// to ripple out over the adjacent water.
+export function landTouchesWater(world: World, tx: number, ty: number): boolean {
+  const kind = terrainAt(world, tx, ty);
+  if (kind !== 'beach' && kind !== 'grass') return false;
+  const neighbors: Array<[number, number]> = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  for (const [dx, dy] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    if (n === 'sea' || n === 'coast') return true;
+  }
+  return false;
+}
+
 // Autotile border mask for a grass/beach tile: a border is drawn on each side
 // where the region meets a "lower" terrain kind — grass against beach/coast/
 // sea, beach against coast/sea. Bits are EDGE_N/S/W/E.

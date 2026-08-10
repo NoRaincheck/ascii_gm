@@ -34,6 +34,7 @@ async function main() {
     'assets/Resources/Trees/Tree.png': `${DOCS}/tree.png`,
     'assets/Terrain/Ground/Tilemap_Flat.png': `${DOCS}/terrain_flat.png`,
     'assets/Terrain/Water/Water.png': `${DOCS}/water.png`,
+    'assets/Terrain/Water/Foam/Foam.png': `${DOCS}/foam.png`,
   };
   for (const [src, dst] of Object.entries(gameAssets)) {
     await Deno.copyFile(src, dst);
