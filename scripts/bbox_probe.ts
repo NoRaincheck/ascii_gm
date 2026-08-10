@@ -138,8 +138,8 @@ async function bbox(path: string, label: string, fx: number, fy: number, fw: num
 }
 
 for (let f = 0; f < 4; f++) {
-  await bbox('tiny-swords/Resources/Trees/Tree.png', `tree-frame${f}`, f * 192, 0, 192, 192);
+  await bbox('assets/Resources/Trees/Tree.png', `tree-frame${f}`, f * 192, 0, 192, 192);
 }
-await bbox('tiny-swords/Factions/Knights/Buildings/House/House_Blue.png', 'house', 0, 0, 128, 192);
-await bbox('tiny-swords/Factions/Knights/Buildings/Tower/Tower_Blue.png', 'tower', 0, 0, 128, 256);
-await bbox('tiny-swords/Factions/Knights/Buildings/Castle/Castle_Blue.png', 'castle', 0, 0, 320, 256);
+await bbox('assets/Factions/Knights/Buildings/House/House_Blue.png', 'house', 0, 0, 128, 192);
+await bbox('assets/Factions/Knights/Buildings/Tower/Tower_Blue.png', 'tower', 0, 0, 128, 256);
+await bbox('assets/Factions/Knights/Buildings/Castle/Castle_Blue.png', 'castle', 0, 0, 320, 256);

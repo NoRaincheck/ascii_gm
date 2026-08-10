@@ -1,11 +1,11 @@
 ---
 name: tiny-swords-game
-description: Use when working with the procedural Phaser game and tiny-swords sprites in this repo — adding/editing sprites, sprite frame crops, terrain rendering, world gen, player movement/collision, no-overlap/no-clipping placement rules, lattice layout, or the game container styling. Covers lib/game.ts, www/game.ts (Phaser), the tiny-swords/ asset sheet, and build-time PNG copying.
+description: Use when working with the procedural Phaser game and tiny-swords sprites in this repo — adding/editing sprites, sprite frame crops, terrain rendering, world gen, player movement/collision, no-overlap/no-clipping placement rules, lattice layout, or the game container styling. Covers lib/game.ts, www/game.ts (Phaser), the assets/ sheet, and build-time PNG copying.
 ---
 
 # Tiny Swords Game & Sprites
 
-This skill documents how the ASCII Game Master's companion game (the WASD-explorable terrain canvas under the card) is built with **Phaser 3**, and how its `tiny-swords/` sprite assets are wired in. Use it before touching game rendering, sprites, terrain, or movement.
+This skill documents how the ASCII Game Master's companion game (the WASD-explorable terrain canvas under the card) is built with **Phaser 3**, and how its `assets/` sprite assets are wired in. Use it before touching game rendering, sprites, terrain, or movement.
 
 ## Architecture
 
@@ -58,11 +58,11 @@ All sheets are RGBA 8-bit. Loaded as Phaser spritesheets with 192×192 frames (w
 
 | Asset | Source path | Frame/crop | Content bbox (within frame) | Sprite center offset in scene |
 |---|---|---|---|---|
-| Warrior | `tiny-swords/Factions/Knights/Troops/Warrior/Blue/Warrior_Blue.png` (1152×1536, 6×8 grid) | frame 0 = `(0,0,192,192)` | `(63,45)–(141,136)` = 78×91 | `SPRITE_POS.warrior = {dx:-6, dy:-40}` (frame center = feet `+(-6,-40)`) |
-| House | `tiny-swords/Factions/Knights/Buildings/House/House_Blue.png` (128×192) | full | `(10,24)–(117,171)` = 108×148 | `SPRITE_POS.house = {dx:128, dy:160}` (frame center = tile `+ (128,160)`) |
-| Tower | `tiny-swords/Factions/Knights/Buildings/Tower/Tower_Blue.png` (128×256) | full | `(7,52)–(120,234)` = 114×183 | `SPRITE_POS.tower = {dx:128, dy:129}` |
-| Castle | `tiny-swords/Factions/Knights/Buildings/Castle/Castle_Blue.png` (320×256) | full | `(12,45)–(307,249)` = 296×205 | `SPRITE_POS.castle = {dx:128, dy:114}` |
-| Tree | `tiny-swords/Resources/Trees/Tree.png` (768×576, 4×3 grid) | frame 0 = `(0,0,192,192)` | `(43,4)–(153,177)` = 111×174 | `SPRITE_POS.tree = {dx:64, dy:32}` (frame center = tile `+ (64,32)`) |
+| Warrior | `assets/Factions/Knights/Troops/Warrior/Blue/Warrior_Blue.png` (1152×1536, 6×8 grid) | frame 0 = `(0,0,192,192)` | `(63,45)–(141,136)` = 78×91 | `SPRITE_POS.warrior = {dx:-6, dy:-40}` (frame center = feet `+(-6,-40)`) |
+| House | `assets/Factions/Knights/Buildings/House/House_Blue.png` (128×192) | full | `(10,24)–(117,171)` = 108×148 | `SPRITE_POS.house = {dx:128, dy:160}` (frame center = tile `+ (128,160)`) |
+| Tower | `assets/Factions/Knights/Buildings/Tower/Tower_Blue.png` (128×256) | full | `(7,52)–(120,234)` = 114×183 | `SPRITE_POS.tower = {dx:128, dy:129}` |
+| Castle | `assets/Factions/Knights/Buildings/Castle/Castle_Blue.png` (320×256) | full | `(12,45)–(307,249)` = 296×205 | `SPRITE_POS.castle = {dx:128, dy:114}` |
+| Tree | `assets/Resources/Trees/Tree.png` (768×576, 4×3 grid) | frame 0 = `(0,0,192,192)` | `(43,4)–(153,177)` = 111×174 | `SPRITE_POS.tree = {dx:64, dy:32}` (frame center = tile `+ (64,32)`) |
 
 - **Warrior**: row 0 is the idle band, row 1 the walk/run cycle; frame 0 = idle. Left-facing is `sprite.setFlipX(true)`.
 - **Tree**: row 2 contains stumps; only frame 0 is used (frames 1–3 share the same baseline).
@@ -77,7 +77,7 @@ The ground is a flat fill (Phaser `setBackgroundColor`). `Tilemap_Flat.png` cont
 
 ## Working with sprites
 
-1. Locate the sheet under `tiny-swords/`.
+1. Locate the sheet under `assets/`.
 2. Verify dimensions; if unsure, decode the PNG (RGBA, filters 0–4) and run an alpha-bbox check to get exact content bounds per frame cell. `scripts/bbox_probe.ts` does this for all landmarks (pure TS, no native deps).
 3. Register in `GameScene.preload()` and add a `SPRITE_POS` entry in `www/game.ts` (and an animation entry if it's an animation band).
 4. Add the source → `docs/` entry to `gameAssets` in `scripts/build.ts`, then `deno task build`.
