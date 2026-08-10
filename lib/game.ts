@@ -110,6 +110,46 @@ export function terrainAt(world: World, tx: number, ty: number): TerrainKind {
   return world.terrain[ty][tx];
 }
 
+// Edge bits for the flat autotile tileset (Tilemap_Flat.png).
+export const EDGE_N = 1;
+export const EDGE_S = 2;
+export const EDGE_W = 4;
+export const EDGE_E = 8;
+
+// Autotile border mask for a grass/beach tile: a border is drawn on each side
+// where the region meets a "lower" terrain kind — grass against beach/coast/
+// sea, beach against coast/sea. Bits are EDGE_N/S/W/E.
+export function flatEdgeMask(world: World, tx: number, ty: number, kind: 'grass' | 'beach'): number {
+  let mask = 0;
+  const neighbors: Array<[number, number, number]> = [
+    [0, -1, EDGE_N],
+    [0, 1, EDGE_S],
+    [-1, 0, EDGE_W],
+    [1, 0, EDGE_E],
+  ];
+  for (const [dx, dy, bit] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    const border = kind === 'grass' ? n !== 'grass' : n === 'coast' || n === 'sea';
+    if (border) mask |= bit;
+  }
+  return mask;
+}
+
+// Map an edge mask to the flat tileset index. Each 4x4 block encodes the border
+// combo: column = W/E (col0=W, col1=none, col2=E, col3=W+E), row = N/S
+// (row0=N, row1=none, row2=S, row3=N+S). Grass lives in block 0, beach in the
+// mirrored block at column 5 of the 10-wide sheet.
+export function flatTileIndex(kind: 'grass' | 'beach', mask: number): number {
+  const hasN = (mask & EDGE_N) !== 0;
+  const hasS = (mask & EDGE_S) !== 0;
+  const hasW = (mask & EDGE_W) !== 0;
+  const hasE = (mask & EDGE_E) !== 0;
+  const col = hasW ? (hasE ? 3 : 0) : hasE ? 2 : 1;
+  const row = hasN ? (hasS ? 3 : 0) : hasS ? 2 : 1;
+  const base = kind === 'beach' ? 5 : 0;
+  return row * 10 + base + col;
+}
+
 // The world is always an island: a large grass mass, a sand beach ring, a
 // foamy coast ring, then deep sea. Ellipse shape with seeded size variation.
 function buildIsland(world: World, rand: () => number): void {

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_TYPES, type BuildingType, generateWorld, hashString, movePlayer, TILE } from '../lib/game.ts';
+import { BUILDING_TYPES, type BuildingType, flatEdgeMask, flatTileIndex, generateWorld, hashString, movePlayer, TILE } from '../lib/game.ts';
 import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
@@ -25,15 +25,6 @@ const SPRITE_POS = {
 
 let currentSeed = 0;
 
-// Deterministic per-tile variant picker so the terrain isn't a flat repeat.
-function variantIndex(seed: number, tx: number, ty: number, count: number): number {
-  let h = seed >>> 0;
-  h ^= Math.imul(tx + 1, 0x9e3779b1);
-  h ^= Math.imul(ty + 1, 0x85ebca6b);
-  h = (h ^ (h >>> 13)) >>> 0;
-  return h % count;
-}
-
 class GameScene extends Phaser.Scene {
   world: World;
   player: Phaser.GameObjects.Sprite;
@@ -55,7 +46,6 @@ class GameScene extends Phaser.Scene {
       this.load.image(type, `${type}_blue.png`);
     }
     this.load.image('flat', 'terrain_flat.png');
-    this.load.image('elev', 'terrain_elevation.png');
     this.load.image('water', 'water.png');
   }
 
@@ -124,27 +114,23 @@ class GameScene extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys('W,A,S,D') as GameScene['keys'];
   }
 
-  // Layered tilemap: deep sea (water.png) → foamy coast (Tilemap_Elevation)
-  // → sand beach (Tilemap_Flat) → grass top (Tilemap_Flat). 64px tiles, one
-  // game tile each, so the world grid lines up with collision/placement.
+  // Layered tilemap: deep sea (water.png) → sand beach (Tilemap_Flat) → grass
+  // top (Tilemap_Flat). Tilemap_Elevation (foamy coast) is not used for now.
+  // 64px tiles, one game tile each, so the world grid lines up with
+  // collision/placement. Coast terrain tiles simply show the water fill below.
   private buildTerrain() {
     const map = this.make.tilemap({ width: MAP_SIZE, height: MAP_SIZE, tileWidth: TILE, tileHeight: TILE });
     const waterTiles = map.addTilesetImage('water', 'water')!;
     const flatTiles = map.addTilesetImage('flat', 'flat')!;
-    const elevTiles = map.addTilesetImage('elev', 'elev')!;
     map.createBlankLayer('water', waterTiles)!.fill(0).setDepth(-10);
-    const coastLayer = map.createBlankLayer('coast', elevTiles)!.setDepth(-9);
     const beachLayer = map.createBlankLayer('beach', flatTiles)!.setDepth(-8);
     const grassLayer = map.createBlankLayer('grass', flatTiles)!.setDepth(-7);
     for (let ty = 0; ty < MAP_SIZE; ty++) {
       for (let tx = 0; tx < MAP_SIZE; tx++) {
         const kind = this.world.terrain[ty][tx];
-        if (kind === 'coast') {
-          coastLayer.putTileAt(variantIndex(currentSeed, tx, ty, 24), tx, ty);
-        } else if (kind === 'beach') {
-          beachLayer.putTileAt(5 + variantIndex(currentSeed, tx, ty, 4), tx, ty);
-        } else if (kind === 'grass') {
-          grassLayer.putTileAt(variantIndex(currentSeed, tx, ty, 4), tx, ty);
+        if (kind === 'beach' || kind === 'grass') {
+          const layer = kind === 'beach' ? beachLayer : grassLayer;
+          layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);
         }
       }
     }

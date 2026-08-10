@@ -139957,6 +139957,35 @@ function terrainAt(world, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= world.width || ty >= world.height) return "sea";
   return world.terrain[ty][tx];
 }
+var EDGE_N = 1;
+var EDGE_S = 2;
+var EDGE_W = 4;
+var EDGE_E = 8;
+function flatEdgeMask(world, tx, ty, kind) {
+  let mask = 0;
+  const neighbors = [
+    [0, -1, EDGE_N],
+    [0, 1, EDGE_S],
+    [-1, 0, EDGE_W],
+    [1, 0, EDGE_E]
+  ];
+  for (const [dx, dy, bit] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    const border = kind === "grass" ? n !== "grass" : n === "coast" || n === "sea";
+    if (border) mask |= bit;
+  }
+  return mask;
+}
+function flatTileIndex(kind, mask) {
+  const hasN = (mask & EDGE_N) !== 0;
+  const hasS = (mask & EDGE_S) !== 0;
+  const hasW = (mask & EDGE_W) !== 0;
+  const hasE = (mask & EDGE_E) !== 0;
+  const col = hasW ? hasE ? 3 : 0 : hasE ? 2 : 1;
+  const row = hasN ? hasS ? 3 : 0 : hasS ? 2 : 1;
+  const base = kind === "beach" ? 5 : 0;
+  return row * 10 + base + col;
+}
 function buildIsland(world, rand) {
   const cx = (world.width - 1) / 2;
   const cy = (world.height - 1) / 2;
@@ -140221,13 +140250,6 @@ var SPRITE_POS = {
   castle: { dx: 128, dy: 114 }
 };
 var currentSeed = 0;
-function variantIndex(seed, tx, ty, count) {
-  let h = seed >>> 0;
-  h ^= Math.imul(tx + 1, 2654435761);
-  h ^= Math.imul(ty + 1, 2246822507);
-  h = (h ^ h >>> 13) >>> 0;
-  return h % count;
-}
 var GameScene = class extends import_phaser.default.Scene {
   constructor() {
     super("game");
@@ -140242,7 +140264,6 @@ var GameScene = class extends import_phaser.default.Scene {
       this.load.image(type, `${type}_blue.png`);
     }
     this.load.image("flat", "terrain_flat.png");
-    this.load.image("elev", "terrain_elevation.png");
     this.load.image("water", "water.png");
   }
   create() {
@@ -140291,27 +140312,23 @@ var GameScene = class extends import_phaser.default.Scene {
     }
     this.keys = this.input.keyboard.addKeys("W,A,S,D");
   }
-  // Layered tilemap: deep sea (water.png) → foamy coast (Tilemap_Elevation)
-  // → sand beach (Tilemap_Flat) → grass top (Tilemap_Flat). 64px tiles, one
-  // game tile each, so the world grid lines up with collision/placement.
+  // Layered tilemap: deep sea (water.png) → sand beach (Tilemap_Flat) → grass
+  // top (Tilemap_Flat). Tilemap_Elevation (foamy coast) is not used for now.
+  // 64px tiles, one game tile each, so the world grid lines up with
+  // collision/placement. Coast terrain tiles simply show the water fill below.
   buildTerrain() {
     const map = this.make.tilemap({ width: MAP_SIZE, height: MAP_SIZE, tileWidth: TILE, tileHeight: TILE });
     const waterTiles = map.addTilesetImage("water", "water");
     const flatTiles = map.addTilesetImage("flat", "flat");
-    const elevTiles = map.addTilesetImage("elev", "elev");
     map.createBlankLayer("water", waterTiles).fill(0).setDepth(-10);
-    const coastLayer = map.createBlankLayer("coast", elevTiles).setDepth(-9);
     const beachLayer = map.createBlankLayer("beach", flatTiles).setDepth(-8);
     const grassLayer = map.createBlankLayer("grass", flatTiles).setDepth(-7);
     for (let ty = 0; ty < MAP_SIZE; ty++) {
       for (let tx = 0; tx < MAP_SIZE; tx++) {
         const kind = this.world.terrain[ty][tx];
-        if (kind === "coast") {
-          coastLayer.putTileAt(variantIndex(currentSeed, tx, ty, 24), tx, ty);
-        } else if (kind === "beach") {
-          beachLayer.putTileAt(5 + variantIndex(currentSeed, tx, ty, 4), tx, ty);
-        } else if (kind === "grass") {
-          grassLayer.putTileAt(variantIndex(currentSeed, tx, ty, 4), tx, ty);
+        if (kind === "beach" || kind === "grass") {
+          const layer = kind === "beach" ? beachLayer : grassLayer;
+          layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);
         }
       }
     }

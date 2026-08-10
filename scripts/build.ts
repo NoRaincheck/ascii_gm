@@ -33,7 +33,6 @@ async function main() {
     'assets/Factions/Knights/Buildings/Castle/Castle_Blue.png': `${DOCS}/castle_blue.png`,
     'assets/Resources/Trees/Tree.png': `${DOCS}/tree.png`,
     'assets/Terrain/Ground/Tilemap_Flat.png': `${DOCS}/terrain_flat.png`,
-    'assets/Terrain/Ground/Tilemap_Elevation.png': `${DOCS}/terrain_elevation.png`,
     'assets/Terrain/Water/Water.png': `${DOCS}/water.png`,
   };
   for (const [src, dst] of Object.entries(gameAssets)) {
