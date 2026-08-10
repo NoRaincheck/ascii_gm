@@ -19,9 +19,12 @@ export interface Player {
   facing: 'up' | 'down' | 'left' | 'right';
 }
 
+export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass';
+
 export interface World {
   width: number;
   height: number;
+  terrain: TerrainKind[][];
   trees: Tree[];
   buildings: Building[];
   player: Player;
@@ -102,6 +105,43 @@ function inBounds(r: Rect, width: number, height: number): boolean {
   return r.x >= 0 && r.y >= 0 && r.x + r.w <= width * TILE && r.y + r.h <= height * TILE;
 }
 
+export function terrainAt(world: World, tx: number, ty: number): TerrainKind {
+  if (tx < 0 || ty < 0 || tx >= world.width || ty >= world.height) return 'sea';
+  return world.terrain[ty][tx];
+}
+
+// The world is always an island: a large grass mass, a sand beach ring, a
+// foamy coast ring, then deep sea. Ellipse shape with seeded size variation.
+function buildIsland(world: World, rand: () => number): void {
+  const cx = (world.width - 1) / 2;
+  const cy = (world.height - 1) / 2;
+  const rx = world.width * (0.42 + rand() * 0.04);
+  const ry = world.height * (0.42 + rand() * 0.04);
+  world.terrain = [];
+  for (let ty = 0; ty < world.height; ty++) {
+    const row: TerrainKind[] = [];
+    for (let tx = 0; tx < world.width; tx++) {
+      const d = Math.hypot((tx - cx) / rx, (ty - cy) / ry);
+      if (d > 1) row.push('sea');
+      else if (d > 0.92) row.push('coast');
+      else if (d > 0.78) row.push('beach');
+      else row.push('grass');
+    }
+    world.terrain.push(row);
+  }
+}
+
+// The tile the body stands on at a pixel position (feet + body width probes).
+function standingTileKinds(world: World, px: number, py: number): TerrainKind[] {
+  const tiles: TerrainKind[] = [];
+  for (const dx of [-BODY.w / 2, 0, BODY.w / 2]) {
+    const tx = Math.floor((px + dx) / TILE);
+    const ty = Math.floor(py / TILE);
+    tiles.push(terrainAt(world, tx, ty));
+  }
+  return tiles;
+}
+
 export function hashString(str: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -123,6 +163,10 @@ export function createRng(seed: number): () => number {
 
 export function canOccupyAt(world: World, px: number, py: number): boolean {
   if (!inBounds(charRect(px, py), world.width, world.height)) return false;
+  // Cannot stand in the water (deep sea or foamy coast).
+  for (const kind of standingTileKinds(world, px, py)) {
+    if (kind === 'sea' || kind === 'coast') return false;
+  }
   const body = bodyRect(px, py);
   for (const t of world.trees) {
     if (intersects(body, treeSolid(t))) return false;
@@ -141,6 +185,20 @@ function contentOverlaps(world: World, r: Rect): boolean {
     if (intersects(r, buildingContent(b))) return true;
   }
   return false;
+}
+
+// Landmarks only sit on the lawn — every tile under the content rect must be grass.
+function rectOnGrass(world: World, r: Rect): boolean {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      if (terrainAt(world, tx, ty) !== 'grass') return false;
+    }
+  }
+  return true;
 }
 
 const CELL = 32;
@@ -183,7 +241,8 @@ function shuffle<T>(arr: T[], rand: () => number): T[] {
 
 export function generateWorld(seed: number, width = 16, height = 16): World {
   const rand = createRng(seed);
-  const world: World = { width, height, trees: [], buildings: [], player: { x: 0, y: 0, facing: 'down' } };
+  const world: World = { width, height, terrain: [], trees: [], buildings: [], player: { x: 0, y: 0, facing: 'down' } };
+  buildIsland(world, rand);
 
   // Landmarks sit on a lattice so they line up nicely on the grid.
   const treeSlots = shuffle(
@@ -205,6 +264,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     const r = treeContent({ x: tx, y: ty });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
+    if (!rectOnGrass(world, r)) continue;
     world.trees.push({ x: tx, y: ty });
   }
 
@@ -227,6 +287,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     const r = buildingContent({ x: bx, y: by, type });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
+    if (!rectOnGrass(world, r)) continue;
     world.buildings.push({ x: bx, y: by, type });
   }
 

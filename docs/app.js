@@ -139953,6 +139953,37 @@ function intersects(a, b) {
 function inBounds(r, width, height) {
   return r.x >= 0 && r.y >= 0 && r.x + r.w <= width * TILE && r.y + r.h <= height * TILE;
 }
+function terrainAt(world, tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= world.width || ty >= world.height) return "sea";
+  return world.terrain[ty][tx];
+}
+function buildIsland(world, rand) {
+  const cx = (world.width - 1) / 2;
+  const cy = (world.height - 1) / 2;
+  const rx = world.width * (0.42 + rand() * 0.04);
+  const ry = world.height * (0.42 + rand() * 0.04);
+  world.terrain = [];
+  for (let ty = 0; ty < world.height; ty++) {
+    const row = [];
+    for (let tx = 0; tx < world.width; tx++) {
+      const d = Math.hypot((tx - cx) / rx, (ty - cy) / ry);
+      if (d > 1) row.push("sea");
+      else if (d > 0.92) row.push("coast");
+      else if (d > 0.78) row.push("beach");
+      else row.push("grass");
+    }
+    world.terrain.push(row);
+  }
+}
+function standingTileKinds(world, px, py) {
+  const tiles = [];
+  for (const dx of [-BODY.w / 2, 0, BODY.w / 2]) {
+    const tx = Math.floor((px + dx) / TILE);
+    const ty = Math.floor(py / TILE);
+    tiles.push(terrainAt(world, tx, ty));
+  }
+  return tiles;
+}
 function hashString(str) {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) {
@@ -139972,6 +140003,9 @@ function createRng(seed) {
 }
 function canOccupyAt(world, px, py) {
   if (!inBounds(charRect(px, py), world.width, world.height)) return false;
+  for (const kind of standingTileKinds(world, px, py)) {
+    if (kind === "sea" || kind === "coast") return false;
+  }
   const body = bodyRect(px, py);
   for (const t of world.trees) {
     if (intersects(body, treeSolid(t))) return false;
@@ -139989,6 +140023,18 @@ function contentOverlaps(world, r) {
     if (intersects(r, buildingContent(b))) return true;
   }
   return false;
+}
+function rectOnGrass(world, r) {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      if (terrainAt(world, tx, ty) !== "grass") return false;
+    }
+  }
+  return true;
 }
 var CELL = 32;
 function reachableAt(world, sx, sy) {
@@ -140027,7 +140073,8 @@ function shuffle(arr, rand) {
 }
 function generateWorld(seed, width = 16, height = 16) {
   const rand = createRng(seed);
-  const world = { width, height, trees: [], buildings: [], player: { x: 0, y: 0, facing: "down" } };
+  const world = { width, height, terrain: [], trees: [], buildings: [], player: { x: 0, y: 0, facing: "down" } };
+  buildIsland(world, rand);
   const treeSlots = shuffle(
     (() => {
       const slots = [];
@@ -140046,6 +140093,7 @@ function generateWorld(seed, width = 16, height = 16) {
     const r = treeContent({ x: tx, y: ty });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
+    if (!rectOnGrass(world, r)) continue;
     world.trees.push({ x: tx, y: ty });
   }
   const numBuildings = 1 + Math.floor(rand() * 2);
@@ -140067,6 +140115,7 @@ function generateWorld(seed, width = 16, height = 16) {
     const r = buildingContent({ x: bx, y: by, type });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
+    if (!rectOnGrass(world, r)) continue;
     world.buildings.push({ x: bx, y: by, type });
   }
   let bestScore = -1;
@@ -140158,7 +140207,7 @@ function movePlayer(world, dx, dy, step) {
 }
 
 // www/game.ts
-var GRASS = 8761686;
+var WATER = 4697001;
 var MAP_SIZE = 16;
 var SPEED = 200;
 var ZOOM = 0.5;
@@ -140172,6 +140221,13 @@ var SPRITE_POS = {
   castle: { dx: 128, dy: 114 }
 };
 var currentSeed = 0;
+function variantIndex(seed, tx, ty, count) {
+  let h = seed >>> 0;
+  h ^= Math.imul(tx + 1, 2654435761);
+  h ^= Math.imul(ty + 1, 2246822507);
+  h = (h ^ h >>> 13) >>> 0;
+  return h % count;
+}
 var GameScene = class extends import_phaser.default.Scene {
   constructor() {
     super("game");
@@ -140185,11 +140241,14 @@ var GameScene = class extends import_phaser.default.Scene {
     for (const type of BUILDING_TYPES) {
       this.load.image(type, `${type}_blue.png`);
     }
+    this.load.image("flat", "terrain_flat.png");
+    this.load.image("elev", "terrain_elevation.png");
+    this.load.image("water", "water.png");
   }
   create() {
     this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
-    this.cameras.main.setBackgroundColor(GRASS);
-    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    this.cameras.main.setBackgroundColor(WATER);
+    this.buildTerrain();
     if (!this.anims.exists("tree")) {
       this.anims.create({
         key: "tree",
@@ -140232,6 +140291,31 @@ var GameScene = class extends import_phaser.default.Scene {
     }
     this.keys = this.input.keyboard.addKeys("W,A,S,D");
   }
+  // Layered tilemap: deep sea (water.png) → foamy coast (Tilemap_Elevation)
+  // → sand beach (Tilemap_Flat) → grass top (Tilemap_Flat). 64px tiles, one
+  // game tile each, so the world grid lines up with collision/placement.
+  buildTerrain() {
+    const map = this.make.tilemap({ width: MAP_SIZE, height: MAP_SIZE, tileWidth: TILE, tileHeight: TILE });
+    const waterTiles = map.addTilesetImage("water", "water");
+    const flatTiles = map.addTilesetImage("flat", "flat");
+    const elevTiles = map.addTilesetImage("elev", "elev");
+    map.createBlankLayer("water", waterTiles).fill(0).setDepth(-10);
+    const coastLayer = map.createBlankLayer("coast", elevTiles).setDepth(-9);
+    const beachLayer = map.createBlankLayer("beach", flatTiles).setDepth(-8);
+    const grassLayer = map.createBlankLayer("grass", flatTiles).setDepth(-7);
+    for (let ty = 0; ty < MAP_SIZE; ty++) {
+      for (let tx = 0; tx < MAP_SIZE; tx++) {
+        const kind = this.world.terrain[ty][tx];
+        if (kind === "coast") {
+          coastLayer.putTileAt(variantIndex(currentSeed, tx, ty, 24), tx, ty);
+        } else if (kind === "beach") {
+          beachLayer.putTileAt(5 + variantIndex(currentSeed, tx, ty, 4), tx, ty);
+        } else if (kind === "grass") {
+          grassLayer.putTileAt(variantIndex(currentSeed, tx, ty, 4), tx, ty);
+        }
+      }
+    }
+  }
   update(time, delta) {
     let dx = 0;
     let dy = 0;
@@ -140269,7 +140353,7 @@ var Game = class {
       parent: container,
       width: WORLD_W,
       height: WORLD_H,
-      backgroundColor: "#85b156",
+      backgroundColor: "#47aba9",
       scene: GameScene
     });
   }

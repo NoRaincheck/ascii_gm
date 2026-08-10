@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { BUILDING_TYPES, type BuildingType, generateWorld, hashString, movePlayer, TILE } from '../lib/game.ts';
 import type { World } from '../lib/game.ts';
 
-const GRASS = 0x85b156;
+const WATER = 0x47aba9;
 const MAP_SIZE = 16;
 const SPEED = 200; // px per second
 const ZOOM = 0.5; // zoom out to show more of the world
@@ -25,6 +25,15 @@ const SPRITE_POS = {
 
 let currentSeed = 0;
 
+// Deterministic per-tile variant picker so the terrain isn't a flat repeat.
+function variantIndex(seed: number, tx: number, ty: number, count: number): number {
+  let h = seed >>> 0;
+  h ^= Math.imul(tx + 1, 0x9e3779b1);
+  h ^= Math.imul(ty + 1, 0x85ebca6b);
+  h = (h ^ (h >>> 13)) >>> 0;
+  return h % count;
+}
+
 class GameScene extends Phaser.Scene {
   world: World;
   player: Phaser.GameObjects.Sprite;
@@ -45,14 +54,21 @@ class GameScene extends Phaser.Scene {
     for (const type of BUILDING_TYPES) {
       this.load.image(type, `${type}_blue.png`);
     }
+    this.load.image('flat', 'terrain_flat.png');
+    this.load.image('elev', 'terrain_elevation.png');
+    this.load.image('water', 'water.png');
   }
 
   create() {
     this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
-    this.cameras.main.setBackgroundColor(GRASS);
+    this.cameras.main.setBackgroundColor(WATER);
 
-    // Set world bounds to full world size
-    this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    // NOTE: no setBounds() here. At ZOOM 0.5 the camera view (2048x2048) is
+    // wider than the world, so bounds clamping degenerates and shoves the
+    // camera off-center. Without bounds the camera always centers on the
+    // player, and beyond-map ocean renders as the background water color.
+
+    this.buildTerrain();
 
     // Tree animation: frames 0-3 (first row of the spritesheet)
     if (!this.anims.exists('tree')) {
@@ -108,6 +124,32 @@ class GameScene extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys('W,A,S,D') as GameScene['keys'];
   }
 
+  // Layered tilemap: deep sea (water.png) → foamy coast (Tilemap_Elevation)
+  // → sand beach (Tilemap_Flat) → grass top (Tilemap_Flat). 64px tiles, one
+  // game tile each, so the world grid lines up with collision/placement.
+  private buildTerrain() {
+    const map = this.make.tilemap({ width: MAP_SIZE, height: MAP_SIZE, tileWidth: TILE, tileHeight: TILE });
+    const waterTiles = map.addTilesetImage('water', 'water')!;
+    const flatTiles = map.addTilesetImage('flat', 'flat')!;
+    const elevTiles = map.addTilesetImage('elev', 'elev')!;
+    map.createBlankLayer('water', waterTiles)!.fill(0).setDepth(-10);
+    const coastLayer = map.createBlankLayer('coast', elevTiles)!.setDepth(-9);
+    const beachLayer = map.createBlankLayer('beach', flatTiles)!.setDepth(-8);
+    const grassLayer = map.createBlankLayer('grass', flatTiles)!.setDepth(-7);
+    for (let ty = 0; ty < MAP_SIZE; ty++) {
+      for (let tx = 0; tx < MAP_SIZE; tx++) {
+        const kind = this.world.terrain[ty][tx];
+        if (kind === 'coast') {
+          coastLayer.putTileAt(variantIndex(currentSeed, tx, ty, 24), tx, ty);
+        } else if (kind === 'beach') {
+          beachLayer.putTileAt(5 + variantIndex(currentSeed, tx, ty, 4), tx, ty);
+        } else if (kind === 'grass') {
+          grassLayer.putTileAt(variantIndex(currentSeed, tx, ty, 4), tx, ty);
+        }
+      }
+    }
+  }
+
   update(time: number, delta: number) {
     let dx = 0;
     let dy = 0;
@@ -151,7 +193,7 @@ export class Game {
       parent: container,
       width: WORLD_W,
       height: WORLD_H,
-      backgroundColor: '#85b156',
+      backgroundColor: '#47aba9',
       scene: GameScene,
     });
   }
