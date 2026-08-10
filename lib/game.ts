@@ -19,9 +19,12 @@ export interface Player {
   facing: 'up' | 'down' | 'left' | 'right';
 }
 
+export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass';
+
 export interface World {
   width: number;
   height: number;
+  terrain: TerrainKind[][];
   trees: Tree[];
   buildings: Building[];
   player: Player;
@@ -102,6 +105,218 @@ function inBounds(r: Rect, width: number, height: number): boolean {
   return r.x >= 0 && r.y >= 0 && r.x + r.w <= width * TILE && r.y + r.h <= height * TILE;
 }
 
+export function terrainAt(world: World, tx: number, ty: number): TerrainKind {
+  if (tx < 0 || ty < 0 || tx >= world.width || ty >= world.height) return 'sea';
+  return world.terrain[ty][tx];
+}
+
+// Edge bits for the flat autotile tileset (Tilemap_Flat.png).
+export const EDGE_N = 1;
+export const EDGE_S = 2;
+export const EDGE_W = 4;
+export const EDGE_E = 8;
+
+// Autotile border mask for a grass/beach tile: a border is drawn on each side
+// where the region meets a "lower" terrain kind — grass against beach/coast/
+// sea, beach against coast/sea. Bits are EDGE_N/S/W/E.
+export function flatEdgeMask(world: World, tx: number, ty: number, kind: 'grass' | 'beach'): number {
+  let mask = 0;
+  const neighbors: Array<[number, number, number]> = [
+    [0, -1, EDGE_N],
+    [0, 1, EDGE_S],
+    [-1, 0, EDGE_W],
+    [1, 0, EDGE_E],
+  ];
+  for (const [dx, dy, bit] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    const border = kind === 'grass' ? n !== 'grass' : n === 'coast' || n === 'sea';
+    if (border) mask |= bit;
+  }
+  return mask;
+}
+
+// Map an edge mask to the flat tileset index. Each 4x4 block encodes the border
+// combo: column = W/E (col0=W, col1=none, col2=E, col3=W+E), row = N/S
+// (row0=N, row1=none, row2=S, row3=N+S). Grass lives in block 0, beach in the
+// mirrored block at column 5 of the 10-wide sheet.
+export function flatTileIndex(kind: 'grass' | 'beach', mask: number): number {
+  const hasN = (mask & EDGE_N) !== 0;
+  const hasS = (mask & EDGE_S) !== 0;
+  const hasW = (mask & EDGE_W) !== 0;
+  const hasE = (mask & EDGE_E) !== 0;
+  const col = hasW ? (hasE ? 3 : 0) : hasE ? 2 : 1;
+  const row = hasN ? (hasS ? 3 : 0) : hasS ? 2 : 1;
+  const base = kind === 'beach' ? 5 : 0;
+  return row * 10 + base + col;
+}
+
+// Simple hash-based noise for deterministic randomness.
+function noise2d(x: number, y: number, seed: number): number {
+  let h = (seed ^ (x * 374761393) ^ (y * 668265263)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h = h ^ (h >>> 16);
+  return (h >>> 0) / 4294967296;
+}
+
+// Smooth noise: interpolate between 4 surrounding noise values.
+function smoothNoise(x: number, y: number, seed: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  // Smoothstep
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const n00 = noise2d(ix, iy, seed);
+  const n10 = noise2d(ix + 1, iy, seed);
+  const n01 = noise2d(ix, iy + 1, seed);
+  const n11 = noise2d(ix + 1, iy + 1, seed);
+  const n0 = n00 * (1 - sx) + n10 * sx;
+  const n1 = n01 * (1 - sx) + n11 * sx;
+  return n0 * (1 - sy) + n1 * sy;
+}
+
+// The world is always an island: a large grass mass, a sand beach ring, a
+// foamy coast ring, then deep sea. Uses a noisy distance-field with
+// percentile-based band assignment so beach is always ~10% of total tiles.
+// Beach extends inland in irregular patches where the shoreline bulges.
+function buildIsland(world: World, rand: () => number): void {
+  const cx = (world.width - 1) / 2;
+  const cy = (world.height - 1) / 2;
+  const rx = world.width * (0.42 + rand() * 0.04);
+  const ry = world.height * (0.42 + rand() * 0.04);
+  const noiseSeed = Math.floor(rand() * 1e6);
+  const totalTiles = world.width * world.height;
+  const targetBeachTiles = Math.floor(totalTiles * 0.10);
+  const targetCoastTiles = Math.floor(totalTiles * 0.05);
+
+  // Pass 1: compute noisy distance field and collect land distances.
+  const distances: number[][] = [];
+  const landDistances: number[] = [];
+  for (let ty = 0; ty < world.height; ty++) {
+    const row: number[] = [];
+    for (let tx = 0; tx < world.width; tx++) {
+      const baseD = Math.hypot((tx - cx) / rx, (ty - cy) / ry);
+      const n = (smoothNoise(tx * 0.4, ty * 0.4, noiseSeed) - 0.5) * 0.14;
+      const d = baseD + n;
+      row.push(d);
+      if (d <= 1) landDistances.push(d);
+    }
+    distances.push(row);
+  }
+
+  // Sort land tiles by distance to find percentile thresholds.
+  landDistances.sort((a, b) => a - b);
+  const landTiles = landDistances.length;
+
+  // Beach = ~10% of total, coast = ~5% of total, rest = grass.
+  const grassEnd = Math.max(0, landTiles - targetBeachTiles - targetCoastTiles);
+  const beachEnd = Math.min(landTiles, grassEnd + targetBeachTiles);
+  const grassThreshold = landDistances[grassEnd];
+  const beachThreshold = landDistances[beachEnd];
+
+  // Pass 2: assign terrain by distance thresholds.
+  world.terrain = [];
+  for (let ty = 0; ty < world.height; ty++) {
+    const terrainRow: TerrainKind[] = [];
+    for (let tx = 0; tx < world.width; tx++) {
+      const d = distances[ty][tx];
+      if (d > 1) {
+        terrainRow.push('sea');
+      } else if (d >= beachThreshold) {
+        terrainRow.push('coast');
+      } else if (d >= grassThreshold) {
+        terrainRow.push('beach');
+      } else {
+        terrainRow.push('grass');
+      }
+    }
+    world.terrain.push(terrainRow);
+  }
+
+  // Connectivity: grow beach tiles randomly, then keep only the largest
+  // connected component. Each growth pass picks random beach tiles and
+  // converts one random adjacent tile to beach. Do 1–2 passes. Then prune
+  // everything not connected to the main component.
+  (() => {
+    const neighbors: Array<[number, number]> = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    const growthPasses = 1 + Math.floor(rand() * 2); // 1 or 2
+    for (let pass = 0; pass < growthPasses; pass++) {
+      const beachTiles: Array<[number, number]> = [];
+      for (let ty = 0; ty < world.height; ty++) {
+        for (let tx = 0; tx < world.width; tx++) {
+          if (world.terrain[ty][tx] === 'beach') beachTiles.push([tx, ty]);
+        }
+      }
+      // Shuffle so each pass picks a random subset.
+      for (let i = beachTiles.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [beachTiles[i], beachTiles[j]] = [beachTiles[j], beachTiles[i]];
+      }
+      // Grow each beach tile by converting one random neighbor to beach.
+      for (const [tx, ty] of beachTiles) {
+        const shuffled = shuffle(neighbors.slice(), rand);
+        for (const [dx, dy] of shuffled) {
+          const nx = tx + dx;
+          const ny = ty + dy;
+          if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
+          if (world.terrain[ny][nx] !== 'beach') {
+            world.terrain[ny][nx] = 'beach';
+            break; // one expansion per tile per pass
+          }
+        }
+      }
+    }
+    // Prune: keep only the largest connected beach component.
+    const visited = new Set<string>();
+    const queue: Array<[number, number]> = [];
+    // Seed from any beach tile.
+    for (let ty = 0; ty < world.height; ty++) {
+      for (let tx = 0; tx < world.width; tx++) {
+        if (world.terrain[ty][tx] === 'beach') {
+          queue.push([tx, ty]);
+          visited.add(`${tx},${ty}`);
+          break;
+        }
+      }
+      if (queue.length > 0) break;
+    }
+    if (queue.length === 0) return;
+    const mainComponent = new Set<string>();
+    while (queue.length > 0) {
+      const [cx, cy] = queue.shift()!;
+      mainComponent.add(`${cx},${cy}`);
+      for (const [dx, dy] of neighbors) {
+        const key = `${cx + dx},${cy + dy}`;
+        if (visited.has(key)) continue;
+        if (cx + dx < 0 || cy + dy < 0 || cx + dx >= world.width || cy + dy >= world.height) continue;
+        if (world.terrain[cy + dy][cx + dx] !== 'beach') continue;
+        visited.add(key);
+        queue.push([cx + dx, cy + dy]);
+      }
+    }
+    // Promote non-main-component beach tiles to grass.
+    for (let ty = 0; ty < world.height; ty++) {
+      for (let tx = 0; tx < world.width; tx++) {
+        if (world.terrain[ty][tx] === 'beach' && !mainComponent.has(`${tx},${ty}`)) {
+          world.terrain[ty][tx] = 'grass';
+        }
+      }
+    }
+  })();
+}
+
+// The tile the body stands on at a pixel position (feet + body width probes).
+function standingTileKinds(world: World, px: number, py: number): TerrainKind[] {
+  const tiles: TerrainKind[] = [];
+  for (const dx of [-BODY.w / 2, 0, BODY.w / 2]) {
+    const tx = Math.floor((px + dx) / TILE);
+    const ty = Math.floor(py / TILE);
+    tiles.push(terrainAt(world, tx, ty));
+  }
+  return tiles;
+}
+
 export function hashString(str: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -123,6 +338,10 @@ export function createRng(seed: number): () => number {
 
 export function canOccupyAt(world: World, px: number, py: number): boolean {
   if (!inBounds(charRect(px, py), world.width, world.height)) return false;
+  // Cannot stand in the water (deep sea or foamy coast).
+  for (const kind of standingTileKinds(world, px, py)) {
+    if (kind === 'sea' || kind === 'coast') return false;
+  }
   const body = bodyRect(px, py);
   for (const t of world.trees) {
     if (intersects(body, treeSolid(t))) return false;
@@ -141,6 +360,20 @@ function contentOverlaps(world: World, r: Rect): boolean {
     if (intersects(r, buildingContent(b))) return true;
   }
   return false;
+}
+
+// Landmarks only sit on the lawn — every tile under the content rect must be grass.
+function rectOnGrass(world: World, r: Rect): boolean {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      if (terrainAt(world, tx, ty) !== 'grass') return false;
+    }
+  }
+  return true;
 }
 
 const CELL = 32;
@@ -183,7 +416,8 @@ function shuffle<T>(arr: T[], rand: () => number): T[] {
 
 export function generateWorld(seed: number, width = 16, height = 16): World {
   const rand = createRng(seed);
-  const world: World = { width, height, trees: [], buildings: [], player: { x: 0, y: 0, facing: 'down' } };
+  const world: World = { width, height, terrain: [], trees: [], buildings: [], player: { x: 0, y: 0, facing: 'down' } };
+  buildIsland(world, rand);
 
   // Landmarks sit on a lattice so they line up nicely on the grid.
   const treeSlots = shuffle(
@@ -205,6 +439,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     const r = treeContent({ x: tx, y: ty });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
+    if (!rectOnGrass(world, r)) continue;
     world.trees.push({ x: tx, y: ty });
   }
 
@@ -227,6 +462,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     const r = buildingContent({ x: bx, y: by, type });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
+    if (!rectOnGrass(world, r)) continue;
     world.buildings.push({ x: bx, y: by, type });
   }
 

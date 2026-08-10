@@ -9,8 +9,8 @@ This skill documents how the ASCII Game Master's companion game (the WASD-explor
 
 ## Architecture
 
-- `lib/game.ts` — pure logic, no DOM/Deno deps: `TILE`, `hashString` (card text → seed), `createRng` (mulberry32), `generateWorld`, `canOccupyAt`, `movePlayer` (sub-step pixel movement), rect helpers, and the `World`/`Player`/`Tree`/`Building` types.
-- `www/game.ts` — Phaser renderer: a `GameScene` (key `'game'`) loads the 3 PNGs as spritesheets/image, `Game` wraps `Phaser.Game` (1024×1024, grass bg). WASD is **continuous smooth movement** (`SPEED = 200` px/s) with **walk**/**idle** animations and sprite flip. `window.__game` is exposed for debugging; `game.move(dx, dy, step)` is a direct movement hook for tests.
+- `lib/game.ts` — pure logic, no DOM/Deno deps: `TILE`, `hashString` (card text → seed), `createRng` (mulberry32), `generateWorld`, `canOccupyAt`, `movePlayer` (sub-step pixel movement), rect helpers, terrain autotile helpers (`flatEdgeMask`, `flatTileIndex`), and the `World`/`Player`/`Tree`/`Building` types.
+- `www/game.ts` — Phaser renderer: a `GameScene` (key `'game'`) loads the terrain PNGs + landmarks (spritesheets/images), `Game` wraps `Phaser.Game` (1024×1024, water bg). WASD is **continuous smooth movement** (`SPEED = 200` px/s) with **walk**/**idle** animations and sprite flip. `window.__game` is exposed for debugging; `game.move(dx, dy, step)` is a direct movement hook for tests.
 - `www/app.js` — calls `initGame(gameContainer, ...)` on load and `game.regenerate(hashString(currentCard))` in `newCard()` so each card seeds a fresh world.
 - `scripts/build.ts` — esbuild-bundles `www/app.js` → `docs/app.js` (Phaser bundled via bare `import Phaser from 'phaser'`, bypassing the `external: ['npm:*']` rule) and copies assets into `docs/`. Tiny-swords PNGs are copied via the `gameAssets` map to short names (`warrior_blue.png`, `house_blue.png`, `tree.png`).
 - `www/index.html` — `<div id="game-container">` holds the Phaser canvas below the card. `www/style.css` styles `#game-container canvas` (pixelated, max-width 640px — the 1024×1024 internal canvas is displayed scaled to 640px).
@@ -21,7 +21,7 @@ This skill documents how the ASCII Game Master's companion game (the WASD-explor
 - Keep pure logic in `lib/game.ts` and Phaser/canvas code in `www/game.ts`.
 - Tile grid is **64×64 px** (`TILE = 64`); world is 16×16 tiles by default (1024×1024 canvas).
 - When a card is regenerated, always re-seed the game from the card text via `hashString` — never a fixed seed.
-- **No water** in the current world: terrain is a single grass background (`#85b156`). Water was intentionally removed.
+- The world is an **island**: sea → coast → beach → grass (ellipse rings, `buildIsland`). Coast is currently **unrendered** — it shows only the water fill (see Terrain rendering).
 - Movement is **sub-grid (pixel)**: continuous WASD at 200 px/s, not tile-snapped and not one-keypress-per-tile. Player position is in **pixels** (feet anchor).
 
 ## Movement & collision model
@@ -69,11 +69,38 @@ All sheets are RGBA 8-bit. Loaded as Phaser spritesheets with 192×192 frames (w
 - **Buildings**: single sprites, load as images. All share the ground anchor content bottom-center `(bx*64+128, by*64+236)`; SPRITE_POS places each frame center so its content bottom-center lands there. Collision solids match the content rects (`BUILDING_SOLID`/`BUILDING_CONTENT` in `lib/game.ts`).
 - Derivation example (warrior): content feet y=136 and horizontal center x=102 within the frame; to land content on the feet position, frame center must sit at `(px + (102-108), py + (136-176)) = (px-6, py-40)`.
 
-## Terrain colors
+## Terrain rendering (layered tilemap + autotile)
 
-The ground is a flat fill (Phaser `setBackgroundColor`). `Tilemap_Flat.png` contains only sparse autotile outlines, so it is not used.
+Terrain is drawn by `GameScene.buildTerrain()` as stacked Phaser tilemap layers, one game tile each (64px) so the grid lines up with collision/placement:
 
-- Grass: `#85b156`. Water: `#47aba9` (currently unused — water removed).
+| Depth | Layer | Tileset | Contents |
+|---|---|---|---|
+| -10 | `water` | `water.png` | full-map fill of the deep-sea tile |
+| -8 | `beach` | `Tilemap_Flat.png` (block at cols 5–8) | sand ring |
+| -7 | `grass` | `Tilemap_Flat.png` (block at cols 0–3) | grass interior |
+
+- `coast` terrain tiles get **no layer** — they show the plain water fill below. `Tilemap_Elevation.png` (foamy coast/foam tiles) is **not used for now**; it is not loaded in `preload()` and not copied by `scripts/build.ts`.
+- Camera background is `WATER` (`#47aba9`); beyond-map ocean renders as that color.
+
+### Tilemap_Flat.png autotile convention
+
+`Tilemap_Flat.png` is **640×256 = 10×4 tiles of 64px**. Columns 0–3 are the **grass 4×4 autotile block**, columns 5–8 the **beach 4×4 block** (columns 4 and 9 are spacers). Each block is a directional tile set where a border on an edge means that side of the terrain region is exposed:
+
+- **Column** = the W/E border pair: col 0 = W only, col 1 = none, col 2 = E only, col 3 = W+E.
+- **Row** = the N/S border pair: row 0 = N only, row 1 = none, row 2 = S only, row 3 = N+S.
+
+So the anchor tiles are: (0,0)=N+W, (3,0)=N+W+E, (0,3)=W+N+S, (3,3)=all four.
+
+`lib/game.ts` exposes the pure helpers:
+
+- `flatEdgeMask(world, tx, ty, kind)` → border bits `EDGE_N|EDGE_S|EDGE_W|EDGE_E`. Grass borders on every side whose neighbor is **not grass** (beach/coast/sea); beach borders only where the neighbor is **coast or sea** (so beach never borders against grass — the grass edge already draws the boundary).
+- `flatTileIndex(kind, mask)` → the 1-D index into the 10-wide sheet (`row*10 + base + col`, `base` = 0 for grass, 5 for beach). The plain interior tile is index 11 (grass) / 16 (beach).
+
+`buildTerrain()` calls `flatTileIndex(kind, flatEdgeMask(...))` per grass/beach tile; water fills the rest. Interior grass/beach is the plain (no-border) tile; the region's rim uses the directional edge tiles.
+
+### Terrain palette (reference)
+
+- Grass fill: `#85b156` (sheet base `9bb94e`). Sand/beach: `f1da84`/`f8f273`. Deep water: `#47aba9`. Coast (foam, when re-enabled): `Tilemap_Elevation.png`.
 
 ## Working with sprites
 
