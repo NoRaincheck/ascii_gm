@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BUILDING_TYPES, type BuildingType, flatEdgeMask, flatTileIndex, generateWorld, hashString, landTouchesWater, movePlayer, TILE } from '../lib/game.ts';
+import { BUILDING_TYPES, type BuildingType, decoFrameOffset, flatEdgeMask, flatTileIndex, generateWorld, hashString, landTouchesWater, movePlayer, TILE } from '../lib/game.ts';
 import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
@@ -45,6 +45,10 @@ class GameScene extends Phaser.Scene {
     for (const type of BUILDING_TYPES) {
       this.load.image(type, `${type}_blue.png`);
     }
+    for (let i = 1; i <= 15; i++) {
+      const n = String(i).padStart(2, '0');
+      this.load.image(`deco${n}`, `deco_${n}.png`);
+    }
     this.load.image('flat', 'terrain_flat.png');
     this.load.image('water', 'water.png');
     this.load.spritesheet('foam', 'foam.png', { frameWidth: 192, frameHeight: 192 });
@@ -72,6 +76,7 @@ class GameScene extends Phaser.Scene {
       });
     }
     this.buildFoam();
+    this.buildDeco();
 
     // Tree animation: frames 0-3 (first row of the spritesheet)
     if (!this.anims.exists('tree')) {
@@ -167,6 +172,16 @@ class GameScene extends Phaser.Scene {
     foamSprites.forEach((sprite, i) => {
       sprite.play({ key: 'foam', startFrame: (i * 3) % 8 });
     });
+  }
+
+  // Grass decorations: pure overlay sprites, no collision. Drawn just above the
+  // grass layer but below trees/buildings/player.
+  private buildDeco() {
+    for (const d of this.world.deco) {
+      const off = decoFrameOffset(d.variant);
+      const key = `deco${String(d.variant).padStart(2, '0')}`;
+      this.add.sprite(d.x * TILE + off.dx, d.y * TILE + off.dy, key).setDepth(-6);
+    }
   }
 
   update(time: number, delta: number) {

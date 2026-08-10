@@ -139947,6 +139947,39 @@ function buildingContent(b) {
   const c = BUILDING_CONTENT[b.type];
   return { x: b.x * TILE + c.x, y: b.y * TILE + c.y, w: c.w, h: c.h };
 }
+var DECO_VARIANTS = [
+  { frameW: 64, frameH: 64, content: { x: 25, y: 24, w: 17, h: 19 } },
+  { frameW: 64, frameH: 64, content: { x: 21, y: 20, w: 26, h: 27 } },
+  { frameW: 64, frameH: 64, content: { x: 14, y: 12, w: 38, h: 37 } },
+  { frameW: 64, frameH: 64, content: { x: 24, y: 19, w: 20, h: 18 } },
+  { frameW: 64, frameH: 64, content: { x: 18, y: 18, w: 29, h: 22 } },
+  { frameW: 64, frameH: 64, content: { x: 12, y: 15, w: 44, h: 34 } },
+  { frameW: 64, frameH: 64, content: { x: 16, y: 21, w: 31, h: 22 } },
+  { frameW: 64, frameH: 64, content: { x: 11, y: 17, w: 42, h: 32 } },
+  { frameW: 64, frameH: 64, content: { x: 2, y: 11, w: 61, h: 42 } },
+  { frameW: 64, frameH: 64, content: { x: 22, y: 23, w: 22, h: 23 } },
+  { frameW: 64, frameH: 64, content: { x: 20, y: 15, w: 32, h: 35 } },
+  { frameW: 64, frameH: 64, content: { x: 11, y: 12, w: 40, h: 39 } },
+  { frameW: 64, frameH: 64, content: { x: 5, y: 10, w: 56, h: 45 } },
+  { frameW: 64, frameH: 64, content: { x: 15, y: 16, w: 36, h: 31 } },
+  { frameW: 64, frameH: 64, content: { x: 24, y: 20, w: 24, h: 24 } }
+];
+function decoFrameOffset(variant) {
+  const v = DECO_VARIANTS[variant - 1];
+  const centerX = v.content.x + v.content.w / 2;
+  const bottomY = v.content.y + v.content.h;
+  return {
+    dx: TILE / 2 - (centerX - v.frameW / 2),
+    dy: TILE - (bottomY - v.frameH / 2)
+  };
+}
+function decoContent(d) {
+  const v = DECO_VARIANTS[d.variant - 1];
+  const off = decoFrameOffset(d.variant);
+  const fx = off.dx - v.frameW / 2 + v.content.x;
+  const fy = off.dy - v.frameH / 2 + v.content.y;
+  return { x: d.x * TILE + fx, y: d.y * TILE + fy, w: v.content.w, h: v.content.h };
+}
 function intersects(a, b) {
   return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
 }
@@ -140123,6 +140156,52 @@ function buildIsland(world, rand) {
       }
     }
   })();
+  fillInlandLakes(world);
+}
+function fillInlandLakes(world) {
+  const isWater = (tx, ty) => {
+    const k = terrainAt(world, tx, ty);
+    return k === "sea" || k === "coast";
+  };
+  const open = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (let tx = 0; tx < world.width; tx++) {
+    for (const ty of [0, world.height - 1]) {
+      if (isWater(tx, ty)) {
+        open.push([tx, ty]);
+        seen.add(`${tx},${ty}`);
+      }
+    }
+  }
+  for (let ty = 0; ty < world.height; ty++) {
+    for (const tx of [0, world.width - 1]) {
+      const key = `${tx},${ty}`;
+      if (isWater(tx, ty) && !seen.has(key)) {
+        open.push([tx, ty]);
+        seen.add(key);
+      }
+    }
+  }
+  while (open.length > 0) {
+    const [cx, cy] = open.pop();
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
+      if (!isWater(nx, ny)) continue;
+      const key = `${nx},${ny}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      open.push([nx, ny]);
+    }
+  }
+  for (let ty = 0; ty < world.height; ty++) {
+    for (let tx = 0; tx < world.width; tx++) {
+      if (isWater(tx, ty) && !seen.has(`${tx},${ty}`)) {
+        world.terrain[ty][tx] = "grass";
+      }
+    }
+  }
 }
 function standingTileKinds(world, px, py) {
   const tiles = [];
@@ -140185,6 +140264,32 @@ function rectOnGrass(world, r) {
   }
   return true;
 }
+function placeDeco(world, rand) {
+  const spacing = 5;
+  world.deco = [];
+  for (let by = 0; by < world.height; by += spacing) {
+    for (let bx = 0; bx < world.width; bx += spacing) {
+      const grass = [];
+      for (let ty = by; ty < by + spacing && ty < world.height; ty++) {
+        for (let tx = bx; tx < bx + spacing && tx < world.width; tx++) {
+          if (world.terrain[ty][tx] === "grass") grass.push([tx, ty]);
+        }
+      }
+      if (grass.length === 0) continue;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const [tx, ty] = grass[Math.floor(rand() * grass.length)];
+        const d = { x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) };
+        const r = decoContent(d);
+        if (!inBounds(r, world.width, world.height)) continue;
+        if (contentOverlaps(world, r)) continue;
+        if (!rectOnGrass(world, r)) continue;
+        if (world.deco.some((o) => Math.max(Math.abs(o.x - d.x), Math.abs(o.y - d.y)) < spacing)) continue;
+        world.deco.push(d);
+        break;
+      }
+    }
+  }
+}
 var CELL = 32;
 function reachableAt(world, sx, sy) {
   const cols = Math.floor(world.width * TILE / CELL);
@@ -140222,7 +140327,7 @@ function shuffle(arr, rand) {
 }
 function generateWorld(seed, width = 16, height = 16) {
   const rand = createRng(seed);
-  const world = { width, height, terrain: [], trees: [], buildings: [], player: { x: 0, y: 0, facing: "down" } };
+  const world = { width, height, terrain: [], trees: [], buildings: [], deco: [], player: { x: 0, y: 0, facing: "down" } };
   buildIsland(world, rand);
   const treeSlots = shuffle(
     (() => {
@@ -140321,6 +140426,7 @@ function generateWorld(seed, width = 16, height = 16) {
     const s = buildingSolid(b);
     return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
+  placeDeco(world, rand);
   return world;
 }
 function movePlayer(world, dx, dy, step) {
@@ -140383,6 +140489,10 @@ var GameScene = class extends import_phaser.default.Scene {
     for (const type of BUILDING_TYPES) {
       this.load.image(type, `${type}_blue.png`);
     }
+    for (let i = 1; i <= 15; i++) {
+      const n = String(i).padStart(2, "0");
+      this.load.image(`deco${n}`, `deco_${n}.png`);
+    }
     this.load.image("flat", "terrain_flat.png");
     this.load.image("water", "water.png");
     this.load.spritesheet("foam", "foam.png", { frameWidth: 192, frameHeight: 192 });
@@ -140400,6 +140510,7 @@ var GameScene = class extends import_phaser.default.Scene {
       });
     }
     this.buildFoam();
+    this.buildDeco();
     if (!this.anims.exists("tree")) {
       this.anims.create({
         key: "tree",
@@ -140481,6 +140592,15 @@ var GameScene = class extends import_phaser.default.Scene {
     foamSprites.forEach((sprite, i) => {
       sprite.play({ key: "foam", startFrame: i * 3 % 8 });
     });
+  }
+  // Grass decorations: pure overlay sprites, no collision. Drawn just above the
+  // grass layer but below trees/buildings/player.
+  buildDeco() {
+    for (const d of this.world.deco) {
+      const off = decoFrameOffset(d.variant);
+      const key = `deco${String(d.variant).padStart(2, "0")}`;
+      this.add.sprite(d.x * TILE + off.dx, d.y * TILE + off.dy, key).setDepth(-6);
+    }
   }
   update(time, delta) {
     let dx = 0;
