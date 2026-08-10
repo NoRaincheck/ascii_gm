@@ -139986,23 +139986,227 @@ function flatTileIndex(kind, mask) {
   const base = kind === "beach" ? 5 : 0;
   return row * 10 + base + col;
 }
+function noise2d(x, y, seed) {
+  let h = (seed ^ x * 374761393 ^ y * 668265263) >>> 0;
+  h = Math.imul(h ^ h >>> 13, 1274126177);
+  h = h ^ h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+function smoothNoise(x, y, seed) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const n00 = noise2d(ix, iy, seed);
+  const n10 = noise2d(ix + 1, iy, seed);
+  const n01 = noise2d(ix, iy + 1, seed);
+  const n11 = noise2d(ix + 1, iy + 1, seed);
+  const n0 = n00 * (1 - sx) + n10 * sx;
+  const n1 = n01 * (1 - sx) + n11 * sx;
+  return n0 * (1 - sy) + n1 * sy;
+}
 function buildIsland(world, rand) {
   const cx = (world.width - 1) / 2;
   const cy = (world.height - 1) / 2;
   const rx = world.width * (0.42 + rand() * 0.04);
   const ry = world.height * (0.42 + rand() * 0.04);
-  world.terrain = [];
+  const noiseSeed = Math.floor(rand() * 1e6);
+  const totalTiles = world.width * world.height;
+  const targetBeachTiles = Math.floor(totalTiles * 0.1);
+  const targetCoastTiles = Math.floor(totalTiles * 0.05);
+  const distances = [];
+  const landDistances = [];
   for (let ty = 0; ty < world.height; ty++) {
     const row = [];
     for (let tx = 0; tx < world.width; tx++) {
-      const d = Math.hypot((tx - cx) / rx, (ty - cy) / ry);
-      if (d > 1) row.push("sea");
-      else if (d > 0.92) row.push("coast");
-      else if (d > 0.78) row.push("beach");
-      else row.push("grass");
+      const baseD = Math.hypot((tx - cx) / rx, (ty - cy) / ry);
+      const n = (smoothNoise(tx * 0.4, ty * 0.4, noiseSeed) - 0.5) * 0.14;
+      const d = baseD + n;
+      row.push(d);
+      if (d <= 1) landDistances.push(d);
     }
-    world.terrain.push(row);
+    distances.push(row);
   }
+  landDistances.sort((a, b) => a - b);
+  const landTiles = landDistances.length;
+  const grassEnd = Math.max(0, landTiles - targetBeachTiles - targetCoastTiles);
+  const beachEnd = Math.min(landTiles, grassEnd + targetBeachTiles);
+  const grassThreshold = landDistances[grassEnd];
+  const beachThreshold = landDistances[beachEnd];
+  world.terrain = [];
+  for (let ty = 0; ty < world.height; ty++) {
+    const terrainRow = [];
+    for (let tx = 0; tx < world.width; tx++) {
+      const d = distances[ty][tx];
+      if (d > 1) {
+        terrainRow.push("sea");
+      } else if (d >= beachThreshold) {
+        terrainRow.push("coast");
+      } else if (d >= grassThreshold) {
+        terrainRow.push("beach");
+      } else {
+        terrainRow.push("grass");
+      }
+    }
+    world.terrain.push(terrainRow);
+  }
+  (() => {
+    const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    const label = Array.from(
+      { length: world.height },
+      () => new Array(world.width).fill(-1)
+    );
+    let compCount = 0;
+    const compSize = [];
+    for (let ty = 0; ty < world.height; ty++) {
+      for (let tx = 0; tx < world.width; tx++) {
+        if (world.terrain[ty][tx] !== "beach" || label[ty][tx] !== -1) continue;
+        const q = [[tx, ty]];
+        label[ty][tx] = compCount;
+        let size = 0;
+        while (q.length > 0) {
+          const [cx2, cy2] = q.shift();
+          size++;
+          for (const [dx, dy] of neighbors) {
+            const nk = `${cx2 + dx},${cy2 + dy}`;
+            if (cx2 + dx < 0 || cy2 + dy < 0 || cx2 + dx >= world.width || cy2 + dy >= world.height) continue;
+            if (world.terrain[cy2 + dy][cx2 + dx] !== "beach" || label[cy2 + dy][cx2 + dx] !== -1) continue;
+            label[cy2 + dy][cx2 + dx] = compCount;
+            q.push([cx2 + dx, cy2 + dy]);
+          }
+        }
+        compSize.push(size);
+        compCount++;
+      }
+    }
+    if (compCount <= 1) return;
+    const merged = new Array(compCount).fill(false);
+    let active = compCount;
+    while (active > 1) {
+      let bestDist = Infinity;
+      let bestPair = null;
+      let bestEndpoints = [];
+      const activeIds = new Array(compCount).fill(0).map((_, i) => i).filter((i) => !merged[i]);
+      for (let ai = 0; ai < activeIds.length; ai++) {
+        for (let bi = ai + 1; bi < activeIds.length; bi++) {
+          const a2 = activeIds[ai];
+          const b2 = activeIds[bi];
+          const distMap = Array.from(
+            { length: world.height },
+            () => new Array(world.width).fill(-1)
+          );
+          const fromA2 = compSize[a2] < compSize[b2];
+          const srcComp2 = fromA2 ? a2 : b2;
+          const tgtComp2 = fromA2 ? b2 : a2;
+          const srcQueue = [];
+          for (let ty = 0; ty < world.height; ty++) {
+            for (let tx = 0; tx < world.width; tx++) {
+              if (label[ty][tx] === srcComp2) {
+                srcQueue.push([tx, ty]);
+                distMap[ty][tx] = 0;
+              }
+            }
+          }
+          let foundDist = -1;
+          let bestTx = -1, bestTy = -1;
+          while (srcQueue.length > 0) {
+            const [cx3, cy3] = srcQueue.shift();
+            if (label[cy3][cx3] === tgtComp2) {
+              foundDist = distMap[cy3][cx3];
+              bestTx = cx3;
+              bestTy = cy3;
+              break;
+            }
+            for (const [dx, dy] of neighbors) {
+              const nx = cx3 + dx;
+              const ny = cy3 + dy;
+              if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
+              if (distMap[ny][nx] !== -1) continue;
+              distMap[ny][nx] = distMap[cy3][cx3] + 1;
+              srcQueue.push([nx, ny]);
+            }
+          }
+          if (foundDist > 0 && foundDist < bestDist) {
+            bestDist = foundDist;
+            bestPair = [a2, b2];
+            bestEndpoints = [[bestTx, bestTy, tgtComp2, srcComp2]];
+          }
+        }
+      }
+      if (!bestPair) break;
+      const [ca, cb] = bestPair;
+      const a = bestPair[0];
+      const b = bestPair[1];
+      const fromA = compSize[a] < compSize[b];
+      const srcComp = fromA ? a : b;
+      const tgtComp = fromA ? b : a;
+      const pathDist = Array.from(
+        { length: world.height },
+        () => new Array(world.width).fill(-1)
+      );
+      const pathQueue = [];
+      for (let ty = 0; ty < world.height; ty++) {
+        for (let tx = 0; tx < world.width; tx++) {
+          if (label[ty][tx] === srcComp) {
+            pathQueue.push([tx, ty]);
+            pathDist[ty][tx] = 0;
+          }
+        }
+      }
+      let endX = -1, endY = -1;
+      while (pathQueue.length > 0) {
+        const [cx3, cy3] = pathQueue.shift();
+        if (label[cy3][cx3] === tgtComp) {
+          endX = cx3;
+          endY = cy3;
+          break;
+        }
+        for (const [dx, dy] of neighbors) {
+          const nx = cx3 + dx;
+          const ny = cy3 + dy;
+          if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
+          if (pathDist[ny][nx] !== -1) continue;
+          pathDist[ny][nx] = pathDist[cy3][cx3] + 1;
+          pathQueue.push([nx, ny]);
+        }
+      }
+      const bridge = [];
+      let cx2 = endX, cy2 = endY;
+      while (pathDist[cy2][cx2] !== 0) {
+        bridge.push([cx2, cy2]);
+        world.terrain[cy2][cx2] = "beach";
+        let bestNx = cx2, bestNy = cy2;
+        let bestNd = pathDist[cy2][cx2];
+        for (const [dx, dy] of neighbors) {
+          const nx = cx2 + dx;
+          const ny = cy2 + dy;
+          if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
+          if (pathDist[ny][nx] >= 0 && pathDist[ny][nx] < bestNd) {
+            bestNd = pathDist[ny][nx];
+            bestNx = nx;
+            bestNy = ny;
+          }
+        }
+        cx2 = bestNx;
+        cy2 = bestNy;
+      }
+      const newLabel = compCount;
+      for (const [tx, ty] of bridge) {
+        label[ty][tx] = newLabel;
+      }
+      for (let ty = 0; ty < world.height; ty++) {
+        for (let tx = 0; tx < world.width; tx++) {
+          if (label[ty][tx] === a || label[ty][tx] === b) label[ty][tx] = newLabel;
+        }
+      }
+      compSize[newLabel] = compSize[a] + compSize[b] + bridge.length;
+      merged[a] = true;
+      merged[b] = true;
+      active--;
+    }
+  })();
 }
 function standingTileKinds(world, px, py) {
   const tiles = [];
