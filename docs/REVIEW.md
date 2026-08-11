@@ -18,8 +18,8 @@ rows 14-15:  sea B B B B B B B B B B B B sea   (beach, bottom)
 ## Rendering order (depth)
 
 1. **Water** — depth -10 (background fill)
-2. **Foam** — depth -8 (animated shoreline ripples)
-3. **Elevation** — depth -7 (cliff band: wall tiles + stairs tile, drawn above the foam so foam rings never render over cliff walls)
+2. **Elevation** — depth -9 (cliff band: wall tiles + stairs tile)
+3. **Foam** — depth -8 (animated shoreline ripples, stencil-masked to the sea)
 4. **Beach + Grass** — depth -7/-6 (flat ground)
 
 Only the cliff band uses the elevation tileset: `elevationTileIndex(kind, ty, tx)` returns the wall tile for `cliff`, the stairs tile for `stairs`, and `-1` (flat) for everything else.

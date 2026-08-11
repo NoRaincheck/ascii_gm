@@ -173,10 +173,7 @@ class GameScene extends Phaser.Scene {
     const elevationTiles = map.addTilesetImage('elevation', 'elevation')!;
     const flatTiles = map.addTilesetImage('flat', 'flat')!;
     map.createBlankLayer('water', waterTiles)!.fill(0).setDepth(-10);
-    // Elevation sits above the foam (depth -8): a foam blob overhangs one tile
-    // past its land tile in every direction, and its ring must never render over
-    // a cliff wall — only over the sea it is meant to ripple into.
-    const elevationLayer = map.createBlankLayer('elevation', elevationTiles)!.setDepth(-7);
+    const elevationLayer = map.createBlankLayer('elevation', elevationTiles)!.setDepth(-9);
     const beachLayer = map.createBlankLayer('beach', flatTiles)!.setDepth(-7);
     const grassLayer = map.createBlankLayer('grass', flatTiles)!.setDepth(-6);
     for (let ty = 0; ty < MAP_SIZE; ty++) {
@@ -196,7 +193,10 @@ class GameScene extends Phaser.Scene {
   // centered on the frame; a sprite is centered on every land tile that touches
   // water, so the opaque beach/grass tile drawn above (depth -7/-6) hides the
   // blob's full center and only the outer foam strips show over the water as
-  // ripples. Start frames are staggered per tile to avoid lockstep animation.
+  // ripples. The foam is masked to the sea: the shore land tiles have transparent
+  // edge speckles in their art, and without the mask the blob body bleeds through
+  // them (white flecks on grass/beach, including edges facing the cliff band).
+  // Start frames are staggered per tile to avoid lockstep animation.
   private buildFoam() {
     const foamSprites: Phaser.GameObjects.Sprite[] = [];
     for (let ty = 0; ty < MAP_SIZE; ty++) {
@@ -207,6 +207,18 @@ class GameScene extends Phaser.Scene {
         foamSprites.push(sprite);
       }
     }
+    const maskGraphics = this.make.graphics({ add: false });
+    maskGraphics.fillStyle(0xffffff);
+    for (let ty = 0; ty < MAP_SIZE; ty++) {
+      for (let tx = 0; tx < MAP_SIZE; tx++) {
+        const kind = this.world.terrain[ty][tx];
+        if (kind === 'sea' || kind === 'coast') {
+          maskGraphics.fillRect(tx * TILE, ty * TILE, TILE, TILE);
+        }
+      }
+    }
+    const mask = maskGraphics.createGeometryMask();
+    foamSprites.forEach((sprite) => sprite.setMask(mask));
     foamSprites.forEach((sprite, i) => {
       sprite.play({ key: 'foam', startFrame: (i * 3) % 8 });
     });
