@@ -1,3 +1,5 @@
+import { createRng, shuffleWith } from './rng.ts';
+
 export interface Tree {
   x: number;
   y: number;
@@ -325,7 +327,7 @@ function buildIsland(world: World, rand: () => number): void {
       }
       // Grow each beach tile by converting one random neighbor to beach.
       for (const [tx, ty] of beachTiles) {
-        const shuffled = shuffle(neighbors.slice(), rand);
+        const shuffled = shuffleWith(neighbors.slice(), rand);
         for (const [dx, dy] of shuffled) {
           const nx = tx + dx;
           const ny = ty + dy;
@@ -447,16 +449,6 @@ export function hashString(str: string): number {
   return h >>> 0;
 }
 
-export function createRng(seed: number): () => number {
-  let state = seed >>> 0;
-  return function next(): number {
-    state = (state + 0x6d2b79f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 export function canOccupyAt(world: World, px: number, py: number): boolean {
   if (!inBounds(charRect(px, py), world.width, world.height)) return false;
   // Cannot stand in the water (deep sea or foamy coast).
@@ -557,22 +549,13 @@ function reachableAt(world: World, sx: number, sy: number): number {
   return count;
 }
 
-function shuffle<T>(arr: T[], rand: () => number): T[] {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 export function generateWorld(seed: number, width = 16, height = 16): World {
   const rand = createRng(seed);
   const world: World = { width, height, terrain: [], trees: [], buildings: [], deco: [], player: { x: 0, y: 0, facing: 'down' } };
   buildIsland(world, rand);
 
   // Landmarks sit on a lattice so they line up nicely on the grid.
-  const treeSlots = shuffle(
+  const treeSlots = shuffleWith(
     (() => {
       const slots: Array<[number, number]> = [];
       for (let ty = 2; ty + 2 < height; ty += 3) {
@@ -596,7 +579,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   }
 
   const numBuildings = 1 + Math.floor(rand() * 2);
-  const houseSlots = shuffle(
+  const houseSlots = shuffleWith(
     (() => {
       const slots: Array<[number, number]> = [];
       for (let by = 2; by + 2 < height; by += 3) {
