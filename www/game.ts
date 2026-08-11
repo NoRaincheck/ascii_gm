@@ -15,11 +15,12 @@ import { elevationTileIndex, stairsTileVariant } from '../lib/elevation_tileset.
 import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
-const MAP_SIZE = 16;
+const MAP_W = 16;
+const MAP_H = 20;
 const SPEED = 200; // px per second
 const ZOOM = 0.5; // zoom out to show more of the world
-const WORLD_W = MAP_SIZE * TILE; // 1024
-const WORLD_H = MAP_SIZE * TILE; // 1024
+const WORLD_W = MAP_W * TILE; // 1024
+const WORLD_H = MAP_H * TILE; // 1280
 
 // Sprite center offsets so the visible content lands on the player's (feet)
 // position and landmark tiles, matching the collision rects in lib/game.ts.
@@ -72,7 +73,7 @@ class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
+    this.world = generateWorld(currentSeed, MAP_W, MAP_H);
     this.cameras.main.setBackgroundColor(WATER);
 
     // NOTE: no setBounds() here. At ZOOM 0.5 the camera view (2048x2048) is
@@ -168,7 +169,7 @@ class GameScene extends Phaser.Scene {
   // shows the wall tiles (with one stairs tile at the climb point); beach and
   // grass tiles draw the flat ground. Sea/coast get no flat layer.
   private buildTerrain() {
-    const map = this.make.tilemap({ width: MAP_SIZE, height: MAP_SIZE, tileWidth: TILE, tileHeight: TILE });
+    const map = this.make.tilemap({ width: MAP_W, height: MAP_H, tileWidth: TILE, tileHeight: TILE });
     const waterTiles = map.addTilesetImage('water', 'water')!;
     const elevationTiles = map.addTilesetImage('elevation', 'elevation')!;
     const flatTiles = map.addTilesetImage('flat', 'flat')!;
@@ -176,15 +177,15 @@ class GameScene extends Phaser.Scene {
     const elevationLayer = map.createBlankLayer('elevation', elevationTiles)!.setDepth(-9);
     const beachLayer = map.createBlankLayer('beach', flatTiles)!.setDepth(-7);
     const grassLayer = map.createBlankLayer('grass', flatTiles)!.setDepth(-6);
-    for (let ty = 0; ty < MAP_SIZE; ty++) {
-      for (let tx = 0; tx < MAP_SIZE; tx++) {
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
         const kind = this.world.terrain[ty][tx];
         if (kind === 'cliff') {
           elevationLayer.putTileAt(elevationTileIndex(kind, ty, tx), tx, ty);
         } else if (kind === 'stairs') {
           // Wide staircases tile the left/center/right motif; the single tile
           // is used when a stairs tile isn't part of a wider run.
-          const run = this.world.stairs.find((s) => tx >= s.start && tx < s.start + s.width);
+          const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
           const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, ty, tx);
           elevationLayer.putTileAt(tile, tx, ty);
         } else if (kind === 'beach' || kind === 'grass') {
@@ -205,8 +206,8 @@ class GameScene extends Phaser.Scene {
   // Start frames are staggered per tile to avoid lockstep animation.
   private buildFoam() {
     const foamSprites: Phaser.GameObjects.Sprite[] = [];
-    for (let ty = 0; ty < MAP_SIZE; ty++) {
-      for (let tx = 0; tx < MAP_SIZE; tx++) {
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
         if (!landTouchesWater(this.world, tx, ty)) continue;
         const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, 'foam');
         sprite.setDepth(-8);
@@ -215,8 +216,8 @@ class GameScene extends Phaser.Scene {
     }
     const maskGraphics = this.make.graphics({ add: false });
     maskGraphics.fillStyle(0xffffff);
-    for (let ty = 0; ty < MAP_SIZE; ty++) {
-      for (let tx = 0; tx < MAP_SIZE; tx++) {
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
         const kind = this.world.terrain[ty][tx];
         if (kind === 'sea' || kind === 'coast') {
           maskGraphics.fillRect(tx * TILE, ty * TILE, TILE, TILE);

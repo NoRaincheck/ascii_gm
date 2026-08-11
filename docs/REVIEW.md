@@ -2,18 +2,20 @@
 
 ## Terrain construction (layers)
 
-The world is a **terraced island**: horizontal bands, from the bottom of the map up — beach, lower grass, a cliff band, then a raised grass plateau. Sea margins frame the island on the top and sides.
+The world is a **terraced island**: horizontal bands, from the bottom of the map up — beach, lower grass, a lower cliff band, mid grass, an upper cliff band, then a raised grass plateau. Sea margins frame the island on the top and sides.
 
 ```
 row 0-1:     sea sea sea ... sea               (top margin)
-rows 2-10:   sea G G G G G G G G G G G G sea   (raised grass plateau)
-row 11:      sea C C C C C C G C C C C C sea   (cliff band, stairs at 1+ runs)
-rows 12-13:  sea G G G G G G G G G G G G sea   (lower grass)
-rows 14-15:  sea B B B B B B B B B B B B sea   (beach, bottom)
+rows 2-11:   sea G G G G G G G G G G G G sea   (raised grass plateau)
+row 12:      sea C C C C C C G C C C C C sea   (upper cliff band, stairs at 1+ runs)
+rows 13-14:  sea G G G G G G G G G G G G sea   (mid grass terrace)
+row 15:      sea C C C C C C G C C C C C sea   (lower cliff band, stairs at 1+ runs)
+rows 16-17:  sea G G G G G G G G G G G G sea   (lower grass)
+rows 18-19:  sea B B B B B B B B B B B B sea   (beach, bottom)
 ```
 
-- The **cliff band** is impassable (`cliff` tiles block standing) except at the **stairs** — one or more randomly-placed staircases (each 1–3 tiles wide, ≥10 columns apart, at least one always) let the plateau be reached. Staircases ideally stay away from the sea margins; a spot against the water is only used when no dry position fits.
-- `buildTerraced(world, rand)` in `lib/game.ts` produces `TerrainKind` = `sea | coast | beach | grass | cliff | stairs`, and records the runs on `world.stairs`.
+- Each **cliff band** is impassable (`cliff` tiles block standing) except at the **stairs** — every band gets one or more randomly-placed staircases (each 1–3 tiles wide, ≥10 columns apart on the same band, at least one per band always) so each terrace is reachable. Staircases ideally stay away from the sea margins; a spot against the water is only used when no dry position fits.
+- `buildTerraced(world, rand)` in `lib/game.ts` produces `TerrainKind` = `sea | coast | beach | grass | cliff | stairs`, and records the runs on `world.stairs` (each with its `row`).
 
 ## Rendering order (depth)
 

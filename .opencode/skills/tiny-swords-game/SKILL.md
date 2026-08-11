@@ -44,7 +44,7 @@ This skill documents how the ASCII Game Master's companion game (the WASD-explor
     - House: `x: bx*64+74, y: by*64+88, w:108, h:148`.
     - Tower: `x: bx*64+71, y: by*64+53, w:114, h:183`.
     - Castle: `x: bx*64-20, y: by*64+31, w:296, h:205` (wide — blocks neighboring lattice slots).
-- Player spawn picks the most open connected region (BFS on a 32px grid, `reachableAt`); then any landmark whose base isn't reachable is removed.
+- Player spawn picks the most open connected region (BFS on a 16px grid, `reachableAt`); then any landmark whose base isn't reachable is removed. The reach window used to keep landmarks is scale-aware: it widens with the footprint width, so a castle standing flush against a terrace edge can still be reached from the side.
 
 ## Animation
 
@@ -83,10 +83,10 @@ Terrain is drawn by `GameScene.buildTerrain()` as stacked Phaser tilemap layers,
 | -7 | `beach` | `Tilemap_Flat.png` (block at cols 5–8) | bottom beach band |
 | -6 | `grass` | `Tilemap_Flat.png` (block at cols 0–3) | grass plateau + lower ground |
 
-- The world is a **terraced island** (`buildTerraced` in `lib/game.ts`): horizontal bands from the bottom of the map up — beach, lower grass, a cliff band, then a raised grass plateau — framed by sea margins on the top and sides. `TerrainKind` = `sea | coast | beach | grass | cliff | stairs`. `world.stairs` records each staircase run `{start, width}`.
-- Staircases: one or more random runs on the cliff band, each 1–3 tiles wide and ≥10 columns apart; at least one is always placed, and runs ideally stay off the sea margins (a water-adjacent spot is only used when no dry position fits — with `minGap = 10` two dry runs can't coexist, so multi-run maps place the extra run at the edge).
+- The world is a **terraced island** (`buildTerraced` in `lib/game.ts`): horizontal bands from the bottom of the map up — beach, lower grass, a lower cliff band, mid grass, an upper cliff band, then a raised grass plateau — framed by sea margins on the top and sides. `TerrainKind` = `sea | coast | beach | grass | cliff | stairs`. `world.stairs` records each staircase run `{start, width, row}`.
+- Staircases: every cliff band gets at least one random run, each 1–3 tiles wide and ≥10 columns apart on the same band; runs ideally stay off the sea margins (a water-adjacent spot is only used when no dry position fits — with `minGap = 10` two dry runs can't coexist on one band, so multi-run bands place the extra run at the edge).
 - Elevation layer: `GameScene.buildTerrain()` calls `elevationTileIndex(kind, ty, tx)` from `lib/elevation_tileset.ts` for every tile and `putTileAt`s the result at depth −9. Only the cliff band gets elevation tiles: `cliff` → a wall tile (col 3 variant by map row), `stairs` → the stair tile for the run position via `stairsTileVariant(run.width, colInRun)` (single 31 for 1-wide; left+right 28/30 for 2-wide; left+center+right 28/29/30 for 3-wide); everything else is flat (-1). `Tilemap_Elevation.png` is **256×512 = 4×8 tiles of 64px**: rows 0–3 grass elevation (indices 0–11), rows 4–5 beach elevation (12–23), row 6 empty, row 7 stair motifs — left (28), center (29), right (30), single (31); walls live in col 3 of rows 0–5 (3,7,11,15,19,23).
-- The cliff band is impassable — `canOccupyAt` blocks `sea`/`coast`/`cliff` — except at `stairs` tiles, so the plateau is reachable only through the gaps.
+- The cliff bands are impassable — `canOccupyAt` blocks `sea`/`coast`/`cliff` — except at `stairs` tiles, so every terrace is reachable only through the gaps.
 - Water foam: `GameScene.buildFoam()` places an animated 192×192 `foam` sprite centered on every land tile where `landTouchesWater(world, tx, ty)` is true (beach/grass with an orthogonal sea/coast neighbor). The foam blob is centered under the opaque land tile (depth −8, below beach −7/grass −6), so the full foam center is hidden and only the outer foam strips show as ripples over the adjacent water. The foam sprites are masked with a stencil mask (`Graphics.fillRect` per sea/coast cell, `createGeometryMask()`, graphics kept off the display list with `add: false`): shore land tiles have transparent edge speckles in their art, and without the mask the blob body bleeds through them as white flecks on grass/beach — including on edges facing the cliff band. Start frames are staggered (`(i * 3) % 8`) so adjacent foam isn't animated in lockstep.
 - `sea`/`coast` tiles get **no flat layer** — they show the water fill + foam below.
 - Camera background is `WATER` (`#47aba9`); beyond-map ocean renders as that color.

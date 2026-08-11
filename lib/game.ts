@@ -36,6 +36,12 @@ export interface Player {
 
 export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'stairs';
 
+export interface StairRun {
+  start: number;
+  width: number;
+  row: number;
+}
+
 export interface World {
   width: number;
   height: number;
@@ -44,7 +50,7 @@ export interface World {
   buildings: Building[];
   deco: Deco[];
   waterRocks: WaterRock[];
-  stairs: Array<{ start: number; width: number }>;
+  stairs: StairRun[];
   player: Player;
 }
 
@@ -232,35 +238,40 @@ export function flatTileIndex(kind: 'grass' | 'beach', mask: number): number {
 }
 
 // The world is a terraced island: from the top of the map down — a raised
-// grass plateau, a cliff band, lower grass, then a beach shoreline at the
-// bottom. Sea margins frame the island on the top and sides so it floats in
-// the water. The 1-tile-tall cliff band is impassable except at the stairs —
-// at least one randomly-placed staircase, each 1-3 tiles wide and ≥10 units
-// from any other, lets the plateau be reached. Staircases ideally stay clear
-// of the sea margins; a spot up against the water is only used when no dry
-// position exists.
+// grass plateau, an upper cliff band, a mid-grass terrace, a lower cliff band,
+// lower grass, then a beach shoreline at the bottom. Sea margins frame the
+// island on the top and sides so it floats in the water. Both 1-tile-tall
+// cliff bands are impassable except at stairs — each band gets at least one
+// randomly-placed staircase (1-3 tiles wide, runs on the same band ≥10 columns
+// apart) so every terrace is reachable. Staircases ideally stay clear of the
+// sea margins; a spot up against the water is only used when no dry position
+// exists.
 function buildTerraced(world: World, rand: () => number): void {
   const { width, height } = world;
   const seaMargin = 2; // sea columns on each side
   const seaTop = 2; // sea rows at the top
   const beachH = 2; // beach rows at the bottom
-  const lowerGrassH = 2; // lower grass rows between cliff and beach
-  const cliffRow = Math.max(seaTop, height - beachH - lowerGrassH - 1);
-  const minGap = 10; // minimum columns between any two stairs runs
-  const maxStairs = 3; // try to place up to this many staircases
+  const lowerGrassH = 2; // lower grass rows between lower cliff and beach
+  const midGrassH = 2; // mid grass rows between the two cliff bands
+  const minGap = 10; // minimum columns between any two stairs runs on a band
+  const maxStairs = 3; // try to place up to this many staircases per band
   const interiorStart = seaMargin; // first usable column (inclusive)
   const interiorEnd = width - seaMargin - 1; // last usable column (inclusive)
+  const lowerCliffRow = Math.max(seaTop, height - beachH - lowerGrassH - 1);
+  const upperCliffRow = lowerCliffRow - midGrassH - 1;
 
   // A staircase touches the sea when one of its ends sits against a margin.
   const touchesWater = (start: number, width: number): boolean =>
     start === interiorStart || start + width - 1 === interiorEnd;
 
-  // Staircase runs [start, start+width-1]. A run fits when it stays inside the
-  // interior and is ≥ minGap columns away from every already-placed run.
-  const stairs: Array<{ start: number; width: number }> = [];
-  const fits = (start: number, width: number): boolean => {
+  // Staircase runs [start, start+width-1] on a given band row. A run fits when
+  // it stays inside the interior and is ≥ minGap columns away from every
+  // already-placed run on the same row (runs on different bands don't clash).
+  const stairs: StairRun[] = [];
+  const bandStairs = (row: number): StairRun[] => stairs.filter((s) => s.row === row);
+  const fits = (row: number, start: number, width: number): boolean => {
     if (start < interiorStart || start + width - 1 > interiorEnd) return false;
-    for (const r of stairs) {
+    for (const r of bandStairs(row)) {
       const gapBelow = start - (r.start + r.width - 1);
       const gapAbove = r.start - (start + width - 1);
       if (Math.max(gapAbove, gapBelow) < minGap) return false;
@@ -268,25 +279,35 @@ function buildTerraced(world: World, rand: () => number): void {
     return true;
   };
 
-  for (let i = 0; i < maxStairs; i++) {
+  const placeBand = (row: number): boolean => {
     let placed = false;
     // Prefer runs away from the water; only fall back to the edges if no dry
     // position lets this staircase fit.
     for (const preferDry of [true, false]) {
       if (placed) break;
-      for (let attempt = 0; attempt < 40 && !placed; attempt++) {
-        const width = 1 + Math.floor(rand() * 3);
-        const start = interiorStart + Math.floor(rand() * (interiorEnd - interiorStart + 1));
-        if (!fits(start, width)) continue;
-        if (preferDry && touchesWater(start, width)) continue;
-        stairs.push({ start, width });
-        placed = true;
+      for (let i = 0; i < maxStairs && !placed; i++) {
+        for (let attempt = 0; attempt < 40 && !placed; attempt++) {
+          const width = 1 + Math.floor(rand() * 3);
+          const start = interiorStart + Math.floor(rand() * (interiorEnd - interiorStart + 1));
+          if (!fits(row, start, width)) continue;
+          if (preferDry && touchesWater(start, width)) continue;
+          stairs.push({ start, width, row });
+          placed = true;
+        }
       }
     }
-    if (!placed) break;
+    return placed;
+  };
+
+  // Each cliff band gets at least one staircase.
+  placeBand(lowerCliffRow);
+  placeBand(upperCliffRow);
+  if (bandStairs(lowerCliffRow).length === 0) {
+    stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1, row: lowerCliffRow });
   }
-  // Guarantee at least one staircase.
-  if (stairs.length === 0) stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1 });
+  if (bandStairs(upperCliffRow).length === 0) {
+    stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1, row: upperCliffRow });
+  }
 
   world.stairs = stairs;
   world.terrain = [];
@@ -298,8 +319,8 @@ function buildTerraced(world: World, rand: () => number): void {
         kind = 'sea';
       } else if (ty >= height - beachH) {
         kind = 'beach';
-      } else if (ty === cliffRow) {
-        const isStairs = stairs.some((s) => tx >= s.start && tx < s.start + s.width);
+      } else if (ty === lowerCliffRow || ty === upperCliffRow) {
+        const isStairs = bandStairs(ty).some((s) => tx >= s.start && tx < s.start + s.width);
         kind = isStairs ? 'stairs' : 'cliff';
       } else {
         kind = 'grass';
@@ -430,7 +451,7 @@ function placeDeco(world: World, rand: () => number): void {
   }
 }
 
-const CELL = 32;
+const CELL = 16;
 
 function reachableAt(world: World, sx: number, sy: number): number {
   const cols = Math.floor((world.width * TILE) / CELL);
@@ -524,6 +545,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   }
 
   // Spawn on the most open connected area.
+  const totalCells = Math.floor((width * TILE) / CELL) * Math.floor((height * TILE) / CELL);
   let bestScore = -1;
   let best: Player = { x: TILE, y: TILE, facing: 'down' };
   for (let attempt = 0; attempt < 400; attempt++) {
@@ -534,7 +556,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     if (score > bestScore) {
       bestScore = score;
       best = { x: px, y: py, facing: 'down' };
-      if (score > 700) break;
+      if (score > totalCells * 0.65) break;
     }
   }
   world.player = best;
@@ -562,13 +584,16 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
       }
     }
   })();
-  const baseReachable = (px: number, py: number): boolean => {
-    const cx = Math.floor(px / CELL);
-    const cy = Math.floor(py / CELL);
+  const baseReachable = (rect: Rect): boolean => {
+    const cx = Math.floor(rect.x / CELL) + Math.floor(rect.w / CELL / 2);
+    const cy = Math.floor((rect.y + rect.h) / CELL);
     // The body is 36px tall, so it must stand a cell or two clear of a large
     // footprint (e.g. below a house wall) before it can close in on the base.
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
+    // Large landmarks (castles) can span several cells and may sit flush against
+    // a terrace edge, so the search window widens with the footprint width.
+    const radiusX = Math.max(2, Math.ceil(rect.w / CELL));
+    for (let dy = -2; dy <= Math.ceil(rect.h / CELL); dy++) {
+      for (let dx = -radiusX; dx <= radiusX; dx++) {
         if (reach.has(`${cx + dx},${cy + dy}`)) return true;
       }
     }
@@ -576,11 +601,11 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   };
   world.trees = world.trees.filter((t) => {
     const s = treeSolid(t);
-    return baseReachable(s.x + s.w / 2, s.y + s.h);
+    return baseReachable(s);
   });
   world.buildings = world.buildings.filter((b) => {
     const s = buildingSolid(b);
-    return baseReachable(s.x + s.w / 2, s.y + s.h);
+    return baseReachable(s);
   });
 
   placeDeco(world, rand);

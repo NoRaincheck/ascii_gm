@@ -2,7 +2,7 @@ import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.t
 import { canOccupyAt, generateWorld, TILE } from '../lib/game.ts';
 
 const W = 16;
-const H = 16;
+const H = 20;
 
 function world() {
   return generateWorld(12345, W, H);
@@ -58,53 +58,63 @@ Deno.test('terraced world — beach sits at the bottom', () => {
   }
 });
 
-Deno.test('terraced world — one cliff row with 1-3-wide stairs runs ≥10 apart', () => {
+Deno.test('terraced world — two cliff rows with 1-3-wide stairs runs ≥10 apart', () => {
   const w = world();
-  const band = cliffBandRows(w);
-  assertEquals(band.length, 1, 'the cliff band is exactly one row tall');
-  const ty = band[0];
-  const runs = stairsRuns(w, ty);
-  assert(runs.length >= 1, 'at least one staircase');
-  for (const [s, e] of runs) {
-    const width = e - s + 1;
-    assert(width >= 1 && width <= 3, `stair run ${s}-${e} (width ${width}) should be 1-3`);
-  }
-  for (let i = 1; i < runs.length; i++) {
-    const gap = runs[i][0] - runs[i - 1][1];
-    assert(gap >= 10, `stairs gap of ${gap} must be ≥ 10 units`);
-  }
-  // Every interior tile in the band is either stairs or cliff; margins are sea.
-  for (let tx = 0; tx < W; tx++) {
-    const kind = w.terrain[ty][tx];
-    if (tx < 2 || tx >= W - 2) {
-      assertEquals(kind, 'sea', `margin tile (tx=${tx},ty=${ty})`);
-    } else {
-      assert(kind === 'cliff' || kind === 'stairs', `band tile (${tx},${ty}) = ${kind}`);
+  const bands = cliffBandRows(w);
+  assertEquals(bands.length, 2, 'the terrace has exactly two cliff bands');
+  for (const ty of bands) {
+    const runs = stairsRuns(w, ty);
+    assert(runs.length >= 1, 'at least one staircase per band');
+    for (const [s, e] of runs) {
+      const width = e - s + 1;
+      assert(width >= 1 && width <= 3, `stair run ${s}-${e} (width ${width}) should be 1-3`);
+    }
+    for (let i = 1; i < runs.length; i++) {
+      const gap = runs[i][0] - runs[i - 1][1];
+      assert(gap >= 10, `stairs gap of ${gap} must be ≥ 10 units`);
+    }
+    // Every interior tile in the band is either stairs or cliff; margins are sea.
+    for (let tx = 0; tx < W; tx++) {
+      const kind = w.terrain[ty][tx];
+      if (tx < 2 || tx >= W - 2) {
+        assertEquals(kind, 'sea', `margin tile (tx=${tx},ty=${ty})`);
+      } else {
+        assert(kind === 'cliff' || kind === 'stairs', `band tile (${tx},${ty}) = ${kind}`);
+      }
     }
   }
 });
 
 Deno.test('terraced world — world.stairs runs match the terrain', () => {
   const w = world();
-  const band = cliffBandRows(w)[0];
-  const runs = stairsRuns(w, band);
-  assertEquals(w.stairs.length, runs.length, 'one world.stairs entry per terrain run');
-  for (const [i, [s, e]] of runs.entries()) {
-    const run = w.stairs[i];
-    assertEquals(run.start, s, `run ${i} start`);
-    assertEquals(run.width, e - s + 1, `run ${i} width`);
+  for (const band of cliffBandRows(w)) {
+    const runs = stairsRuns(w, band);
+    const recorded = w.stairs.filter((s) => s.row === band);
+    assertEquals(recorded.length, runs.length, 'one world.stairs entry per terrain run');
+    for (const [i, [s, e]] of runs.entries()) {
+      const run = recorded[i];
+      assertEquals(run.start, s, `run ${i} start`);
+      assertEquals(run.width, e - s + 1, `run ${i} width`);
+    }
   }
 });
 
-Deno.test('terraced world — grass above and below the cliff band', () => {
+Deno.test('terraced world — grass above, between, and below the cliff bands', () => {
   const w = world();
-  const band = cliffBandRows(w)[0];
-  for (let ty = 2; ty < band; ty++) {
+  const bands = cliffBandRows(w);
+  const upper = Math.min(...bands);
+  const lower = Math.max(...bands);
+  for (let ty = 2; ty < upper; ty++) {
     for (let tx = 2; tx < W - 2; tx++) {
       assertEquals(w.terrain[ty][tx], 'grass', `plateau (${tx},${ty})`);
     }
   }
-  for (let ty = band + 1; ty < H - 2; ty++) {
+  for (let ty = upper + 1; ty < lower; ty++) {
+    for (let tx = 2; tx < W - 2; tx++) {
+      assertEquals(w.terrain[ty][tx], 'grass', `mid terrace (${tx},${ty})`);
+    }
+  }
+  for (let ty = lower + 1; ty < H - 2; ty++) {
     for (let tx = 2; tx < W - 2; tx++) {
       assertEquals(w.terrain[ty][tx], 'grass', `lower ground (${tx},${ty})`);
     }
@@ -142,17 +152,18 @@ Deno.test('terraced world — every land tile is reachable through the stairs', 
 
 Deno.test('terraced world — player cannot stand on the cliff face but can on the stairs', () => {
   const w = world();
-  const ty = cliffBandRows(w)[0];
-  let cliffTx = -1;
-  let stairsTx = -1;
-  for (let tx = 2; tx < W - 2; tx++) {
-    if (w.terrain[ty][tx] === 'cliff') cliffTx = tx;
-    if (w.terrain[ty][tx] === 'stairs' && stairsTx === -1) stairsTx = tx;
+  for (const ty of cliffBandRows(w)) {
+    let cliffTx = -1;
+    let stairsTx = -1;
+    for (let tx = 2; tx < W - 2; tx++) {
+      if (w.terrain[ty][tx] === 'cliff') cliffTx = tx;
+      if (w.terrain[ty][tx] === 'stairs' && stairsTx === -1) stairsTx = tx;
+    }
+    assert(cliffTx !== -1, 'expected a cliff tile');
+    assert(stairsTx !== -1, 'expected a stairs tile');
+    const bandY = ty * TILE + TILE / 2;
+    assertEquals(canOccupyAt(w, cliffTx * TILE + TILE / 2, bandY), false, 'cliff face blocks standing');
+    assertEquals(canOccupyAt(w, stairsTx * TILE + TILE / 2, bandY), true, 'stairs tile is walkable');
   }
-  assert(cliffTx !== -1, 'expected a cliff tile');
-  assert(stairsTx !== -1, 'expected a stairs tile');
-  const bandY = ty * TILE + TILE / 2;
-  assertEquals(canOccupyAt(w, cliffTx * TILE + TILE / 2, bandY), false, 'cliff face blocks standing');
-  assertEquals(canOccupyAt(w, stairsTx * TILE + TILE / 2, bandY), true, 'stairs tile is walkable');
   assertEquals(canOccupyAt(w, 4 * TILE + TILE / 2, (H - 2) * TILE + TILE / 2), true);
 });

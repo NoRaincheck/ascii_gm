@@ -42,10 +42,10 @@ Deno.test('elevationTileIndex — flat terrain kinds get no elevation tile', () 
 
 // ── Cliff band ───────────────────────────────────────────────────────────────
 
-Deno.test('elevationTileIndex — cliff uses the wall column', () => {
+Deno.test('elevationTileIndex — cliff uses the wall column (same tile for all bands)', () => {
+  const expected = wallTileIndex(0); // both cliff bands use the same wall tile
   for (let ty = 0; ty < 16; ty++) {
     const idx = elevationTileIndex('cliff', ty, 3);
-    const expected = wallTileIndex(ty % 6);
     assertEquals(idx, expected, `cliff at row ${ty}: expected ${expected}, got ${idx}`);
     // Wall tiles are in column 3 of the sheet.
     assert(idx % COLS === 3, `cliff at row ${ty}: index ${idx} should be in column 3`);
