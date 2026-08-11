@@ -156,23 +156,48 @@ export function getElevationTile(index: number): TileData | undefined {
 export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'stairs';
 
 /**
+ * Find the wall run that contains column `tx` in a terrain row, and return
+ * the run's start column, end column, and the zero-based column index of `tx`
+ * within that run.
+ *
+ * A wall run is a contiguous sequence of 'cliff' tiles on the same row.
+ *
+ * @param terrainRow — the full terrain row (kinds for each column)
+ * @param tx — column to look up
+ * @returns { start, end, colInRun } or null if no cliff run contains this column
+ */
+export function wallRunInfo(terrainRow: TerrainKind[], tx: number): { start: number; end: number; colInRun: number } | null {
+  if (terrainRow[tx] !== 'cliff') return null;
+  // Walk left from tx to find the run start
+  let start = tx;
+  while (start > 0 && terrainRow[start - 1] === 'cliff') start--;
+  // Walk right to find the run end
+  let end = tx;
+  while (end < terrainRow.length - 1 && terrainRow[end + 1] === 'cliff') end++;
+  return { start, end, colInRun: tx - start };
+}
+
+/**
  * Select the elevation tile for a given terrain tile.
  *
  * Only the cliff band uses elevation tiles:
- * - 'cliff' tiles render the cliff face (wall row; both cliff bands use
- *   the same wall tile for visual consistency)
+ * - 'cliff' tiles render the cliff face, with position-aware variants
+ *   (left / center / right / single) so the wall run looks natural
  * - 'stairs' tiles render the staircase at the climb point
  * All other terrain kinds get no elevation tile (-1); they are flat.
  *
  * @param kind — terrain type
- * @param ty — row index (0 = top of map), picks the wall variant
- * @param tx — column index (currently unused, kept for symmetry)
+ * @param terrainRow — the full terrain row for this y position
+ * @param tx — column index within the row
  * @returns the elevation tile index, or -1 if no elevation tile should be shown
  */
-export function elevationTileIndex(kind: TerrainKind, ty: number, tx: number): number {
+export function elevationTileIndex(kind: TerrainKind, terrainRow: TerrainKind[], tx: number): number {
   switch (kind) {
-    case 'cliff':
-      return wallTileIndex(0);
+    case 'cliff': {
+      const info = wallRunInfo(terrainRow, tx);
+      if (!info) return -1;
+      return wallTileIndex(info.end - info.start + 1, info.colInRun);
+    }
     case 'stairs':
       return stairsTileIndex();
     default:
@@ -183,14 +208,21 @@ export function elevationTileIndex(kind: TerrainKind, ty: number, tx: number): n
 /**
  * Get the wall tile variant for a given column position within a wall run.
  * Wall tiles are in row 3: left(0), center(1), right(2), single(3).
+ *
+ * For runs of width 1: single.
+ * For runs of width 2: left, right.
+ * For runs of width 3: left, center, right.
+ * For runs of width ≥4: left, center*, right — center tiles fill the middle.
+ *
+ * @param runWidth — total width of the wall run
  * @param colInRun — column within the wall run, 0-based from the run's left edge
- * @returns the wall tile index, or WALL_SINGLE_TILE for 1-wide runs
+ * @returns the wall tile index
  */
-export function wallTileIndex(colInRun: number): number {
+export function wallTileIndex(runWidth: number, colInRun: number): number {
+  if (runWidth <= 1) return WALL_SINGLE_TILE;
   if (colInRun <= 0) return WALL_LEFT_TILE;
-  if (colInRun === 1) return WALL_CENTER_TILE;
-  if (colInRun === 2) return WALL_RIGHT_TILE;
-  return WALL_SINGLE_TILE;
+  if (colInRun >= runWidth - 1) return WALL_RIGHT_TILE;
+  return WALL_CENTER_TILE;
 }
 
 /**

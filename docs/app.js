@@ -140404,21 +140404,32 @@ var STAIRS_CENTER_TILE = 29;
 var STAIRS_RIGHT_TILE = 30;
 var STAIRS_SINGLE_TILE = 31;
 var STAIRS_TILE = STAIRS_SINGLE_TILE;
-function elevationTileIndex(kind, ty, tx) {
+function wallRunInfo(terrainRow, tx) {
+  if (terrainRow[tx] !== "cliff") return null;
+  let start = tx;
+  while (start > 0 && terrainRow[start - 1] === "cliff") start--;
+  let end = tx;
+  while (end < terrainRow.length - 1 && terrainRow[end + 1] === "cliff") end++;
+  return { start, end, colInRun: tx - start };
+}
+function elevationTileIndex(kind, terrainRow, tx) {
   switch (kind) {
-    case "cliff":
-      return wallTileIndex(0);
+    case "cliff": {
+      const info = wallRunInfo(terrainRow, tx);
+      if (!info) return -1;
+      return wallTileIndex(info.end - info.start + 1, info.colInRun);
+    }
     case "stairs":
       return stairsTileIndex();
     default:
       return -1;
   }
 }
-function wallTileIndex(colInRun) {
+function wallTileIndex(runWidth, colInRun) {
+  if (runWidth <= 1) return WALL_SINGLE_TILE;
   if (colInRun <= 0) return WALL_LEFT_TILE;
-  if (colInRun === 1) return WALL_CENTER_TILE;
-  if (colInRun === 2) return WALL_RIGHT_TILE;
-  return WALL_SINGLE_TILE;
+  if (colInRun >= runWidth - 1) return WALL_RIGHT_TILE;
+  return WALL_CENTER_TILE;
 }
 function stairsTileIndex() {
   return STAIRS_TILE;
@@ -140558,10 +140569,10 @@ var GameScene = class extends import_phaser.default.Scene {
       for (let tx = 0; tx < MAP_W; tx++) {
         const kind = this.world.terrain[ty][tx];
         if (kind === "cliff") {
-          elevationLayer.putTileAt(elevationTileIndex(kind, ty, tx), tx, ty);
+          elevationLayer.putTileAt(elevationTileIndex(kind, this.world.terrain[ty], tx), tx, ty);
         } else if (kind === "stairs") {
           const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
-          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, ty, tx);
+          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, this.world.terrain[ty], tx);
           elevationLayer.putTileAt(tile, tx, ty);
         } else if (kind === "beach" || kind === "grass") {
           const layer = kind === "beach" ? beachLayer : grassLayer;

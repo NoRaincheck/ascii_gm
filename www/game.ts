@@ -181,12 +181,12 @@ class GameScene extends Phaser.Scene {
       for (let tx = 0; tx < MAP_W; tx++) {
         const kind = this.world.terrain[ty][tx];
         if (kind === 'cliff') {
-          elevationLayer.putTileAt(elevationTileIndex(kind, ty, tx), tx, ty);
+          elevationLayer.putTileAt(elevationTileIndex(kind, this.world.terrain[ty], tx), tx, ty);
         } else if (kind === 'stairs') {
           // Wide staircases tile the left/center/right motif; the single tile
           // is used when a stairs tile isn't part of a wider run.
           const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
-          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, ty, tx);
+          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, this.world.terrain[ty], tx);
           elevationLayer.putTileAt(tile, tx, ty);
         } else if (kind === 'beach' || kind === 'grass') {
           const layer = kind === 'beach' ? beachLayer : grassLayer;
