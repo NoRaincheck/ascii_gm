@@ -140047,14 +140047,45 @@ function flatTileIndex(kind, mask) {
   const base = kind === "beach" ? 5 : 0;
   return row * 10 + base + col;
 }
-function buildTerraced(world) {
+function buildTerraced(world, rand) {
   const { width, height } = world;
   const seaMargin = 2;
   const seaTop = 2;
   const beachH = 2;
   const lowerGrassH = 2;
   const cliffRow = Math.max(seaTop, height - beachH - lowerGrassH - 1);
-  const stairsCol = Math.floor(width / 2);
+  const minGap = 10;
+  const maxStairs = 3;
+  const interiorStart = seaMargin;
+  const interiorEnd = width - seaMargin - 1;
+  const touchesWater = (start, width2) => start === interiorStart || start + width2 - 1 === interiorEnd;
+  const stairs = [];
+  const fits = (start, width2) => {
+    if (start < interiorStart || start + width2 - 1 > interiorEnd) return false;
+    for (const r of stairs) {
+      const gapBelow = start - (r.start + r.width - 1);
+      const gapAbove = r.start - (start + width2 - 1);
+      if (Math.max(gapAbove, gapBelow) < minGap) return false;
+    }
+    return true;
+  };
+  for (let i = 0; i < maxStairs; i++) {
+    let placed = false;
+    for (const preferDry of [true, false]) {
+      if (placed) break;
+      for (let attempt = 0; attempt < 40 && !placed; attempt++) {
+        const width2 = 1 + Math.floor(rand() * 3);
+        const start = interiorStart + Math.floor(rand() * (interiorEnd - interiorStart + 1));
+        if (!fits(start, width2)) continue;
+        if (preferDry && touchesWater(start, width2)) continue;
+        stairs.push({ start, width: width2 });
+        placed = true;
+      }
+    }
+    if (!placed) break;
+  }
+  if (stairs.length === 0) stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1 });
+  world.stairs = stairs;
   world.terrain = [];
   for (let ty = 0; ty < height; ty++) {
     const terrainRow = [];
@@ -140065,7 +140096,8 @@ function buildTerraced(world) {
       } else if (ty >= height - beachH) {
         kind = "beach";
       } else if (ty === cliffRow) {
-        kind = tx === stairsCol ? "stairs" : "cliff";
+        const isStairs = stairs.some((s) => tx >= s.start && tx < s.start + s.width);
+        kind = isStairs ? "stairs" : "cliff";
       } else {
         kind = "grass";
       }
@@ -140211,9 +140243,10 @@ function generateWorld(seed, width = 16, height = 16) {
     buildings: [],
     deco: [],
     waterRocks: [],
+    stairs: [],
     player: { x: 0, y: 0, facing: "down" }
   };
-  buildTerraced(world);
+  buildTerraced(world, rand);
   const numBuildings = 1 + Math.floor(rand() * 2);
   const houseSlots = shuffleWith(
     (() => {
@@ -140351,7 +140384,11 @@ function movePlayer(world, dx, dy, step) {
 var COLS = 4;
 var WALL_START_ROW = 0;
 var WALL_END_ROW = 5;
-var STAIRS_TILE = 31;
+var STAIRS_LEFT_TILE = 28;
+var STAIRS_CENTER_TILE = 29;
+var STAIRS_RIGHT_TILE = 30;
+var STAIRS_SINGLE_TILE = 31;
+var STAIRS_TILE = STAIRS_SINGLE_TILE;
 function tileIndex(row, col) {
   return row * COLS + col;
 }
@@ -140371,6 +140408,12 @@ function wallTileIndex(tsRow) {
 }
 function stairsTileIndex() {
   return STAIRS_TILE;
+}
+function stairsTileVariant(runWidth, colInRun) {
+  if (runWidth <= 1) return STAIRS_SINGLE_TILE;
+  if (runWidth === 2) return colInRun === 0 ? STAIRS_LEFT_TILE : STAIRS_RIGHT_TILE;
+  const variants = [STAIRS_LEFT_TILE, STAIRS_CENTER_TILE, STAIRS_RIGHT_TILE];
+  return variants[Math.min(Math.max(colInRun, 0), variants.length - 1)];
 }
 
 // www/game.ts
@@ -140499,8 +140542,12 @@ var GameScene = class extends import_phaser.default.Scene {
     for (let ty = 0; ty < MAP_SIZE; ty++) {
       for (let tx = 0; tx < MAP_SIZE; tx++) {
         const kind = this.world.terrain[ty][tx];
-        if (kind === "cliff" || kind === "stairs") {
+        if (kind === "cliff") {
           elevationLayer.putTileAt(elevationTileIndex(kind, ty, tx), tx, ty);
+        } else if (kind === "stairs") {
+          const run = this.world.stairs.find((s) => tx >= s.start && tx < s.start + s.width);
+          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, ty, tx);
+          elevationLayer.putTileAt(tile, tx, ty);
         } else if (kind === "beach" || kind === "grass") {
           const layer = kind === "beach" ? beachLayer : grassLayer;
           layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);

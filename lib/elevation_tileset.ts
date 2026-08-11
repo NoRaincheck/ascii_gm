@@ -34,8 +34,15 @@ export const ROWS = 8;
 export const WALL_START_ROW = 0; // tileset row 0
 export const WALL_END_ROW = 5; // tileset row 5
 
-// Stairs tile: row 7, col 3
-export const STAIRS_TILE = 31;
+// Row 7 staircases (4 tiles of 64px each): left, center, right, single. The
+// left/center/right tiles share the same repeating stair motif, so they tile
+// seamlessly into a wide staircase: width 2 = left+right, width 3 =
+// left+center+right, width 1 = the single tile.
+export const STAIRS_LEFT_TILE = 28; // row 7, col 0
+export const STAIRS_CENTER_TILE = 29; // row 7, col 1
+export const STAIRS_RIGHT_TILE = 30; // row 7, col 2
+export const STAIRS_SINGLE_TILE = 31; // row 7, col 3
+export const STAIRS_TILE = STAIRS_SINGLE_TILE;
 
 /**
  * Convert a tileset row and column to a tile index.
@@ -158,4 +165,22 @@ export function wallTileIndex(tsRow: number): number {
  */
 export function stairsTileIndex(): number {
   return STAIRS_TILE;
+}
+
+/**
+ * Pick the elevation tile for a staircase tile at a column inside its run.
+ *
+ * A 1-wide staircase renders with the single tile (31). Wider runs tile the
+ * shared motif side by side: a 2-wide run uses left+right (28, 30) and a
+ * 3-wide run uses left+center+right (28, 29, 30).
+ *
+ * @param runWidth — staircase width (1-3)
+ * @param colInRun — column within the run, 0-based from the run's left edge
+ * @returns the elevation tile index for that position
+ */
+export function stairsTileVariant(runWidth: number, colInRun: number): number {
+  if (runWidth <= 1) return STAIRS_SINGLE_TILE;
+  if (runWidth === 2) return colInRun === 0 ? STAIRS_LEFT_TILE : STAIRS_RIGHT_TILE;
+  const variants = [STAIRS_LEFT_TILE, STAIRS_CENTER_TILE, STAIRS_RIGHT_TILE];
+  return variants[Math.min(Math.max(colInRun, 0), variants.length - 1)];
 }

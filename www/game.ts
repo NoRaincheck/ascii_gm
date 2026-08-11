@@ -11,7 +11,7 @@ import {
   movePlayer,
   TILE,
 } from '../lib/game.ts';
-import { elevationTileIndex } from '../lib/elevation_tileset.ts';
+import { elevationTileIndex, stairsTileVariant } from '../lib/elevation_tileset.ts';
 import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
@@ -179,8 +179,14 @@ class GameScene extends Phaser.Scene {
     for (let ty = 0; ty < MAP_SIZE; ty++) {
       for (let tx = 0; tx < MAP_SIZE; tx++) {
         const kind = this.world.terrain[ty][tx];
-        if (kind === 'cliff' || kind === 'stairs') {
+        if (kind === 'cliff') {
           elevationLayer.putTileAt(elevationTileIndex(kind, ty, tx), tx, ty);
+        } else if (kind === 'stairs') {
+          // Wide staircases tile the left/center/right motif; the single tile
+          // is used when a stairs tile isn't part of a wider run.
+          const run = this.world.stairs.find((s) => tx >= s.start && tx < s.start + s.width);
+          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, ty, tx);
+          elevationLayer.putTileAt(tile, tx, ty);
         } else if (kind === 'beach' || kind === 'grass') {
           const layer = kind === 'beach' ? beachLayer : grassLayer;
           layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);

@@ -4,6 +4,11 @@ import {
   elevationTileIndex,
   ROWS,
   stairsTileIndex,
+  stairsTileVariant,
+  STAIRS_CENTER_TILE,
+  STAIRS_LEFT_TILE,
+  STAIRS_RIGHT_TILE,
+  STAIRS_SINGLE_TILE,
   type TerrainKind,
   TILE_H,
   TILE_W,
@@ -72,4 +77,19 @@ Deno.test('wallTileIndex — returns -1 outside rows 0-5', () => {
 
 Deno.test('stairsTileIndex — stairs are the last tile', () => {
   assertEquals(stairsTileIndex(), 31);
+});
+
+Deno.test('stairsTileVariant — single tile for a 1-wide run', () => {
+  assertEquals(stairsTileVariant(1, 0), STAIRS_SINGLE_TILE);
+});
+
+Deno.test('stairsTileVariant — 2-wide run uses left + right', () => {
+  assertEquals(stairsTileVariant(2, 0), STAIRS_LEFT_TILE);
+  assertEquals(stairsTileVariant(2, 1), STAIRS_RIGHT_TILE);
+});
+
+Deno.test('stairsTileVariant — 3-wide run uses left + center + right', () => {
+  assertEquals(stairsTileVariant(3, 0), STAIRS_LEFT_TILE);
+  assertEquals(stairsTileVariant(3, 1), STAIRS_CENTER_TILE);
+  assertEquals(stairsTileVariant(3, 2), STAIRS_RIGHT_TILE);
 });

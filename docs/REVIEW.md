@@ -7,13 +7,13 @@ The world is a **terraced island**: horizontal bands, from the bottom of the map
 ```
 row 0-1:     sea sea sea ... sea               (top margin)
 rows 2-10:   sea G G G G G G G G G G G G sea   (raised grass plateau)
-row 11:      sea C C C C C C G C C C C C sea   (cliff band, stairs at col 8)
+row 11:      sea C C C C C C G C C C C C sea   (cliff band, stairs at 1+ runs)
 rows 12-13:  sea G G G G G G G G G G G G sea   (lower grass)
 rows 14-15:  sea B B B B B B B B B B B B sea   (beach, bottom)
 ```
 
-- The **cliff band** is impassable (`cliff` tiles block standing) except for a single `stairs` tile, so the plateau is reachable only through that gap.
-- `buildTerraced(world)` in `lib/game.ts` produces `TerrainKind` = `sea | coast | beach | grass | cliff | stairs`.
+- The **cliff band** is impassable (`cliff` tiles block standing) except at the **stairs** — one or more randomly-placed staircases (each 1–3 tiles wide, ≥10 columns apart, at least one always) let the plateau be reached. Staircases ideally stay away from the sea margins; a spot against the water is only used when no dry position fits.
+- `buildTerraced(world, rand)` in `lib/game.ts` produces `TerrainKind` = `sea | coast | beach | grass | cliff | stairs`, and records the runs on `world.stairs`.
 
 ## Rendering order (depth)
 
@@ -37,14 +37,14 @@ Row 3: [Grass 9]  [Grass 10] [Grass 11] [Wall 3]   ← indices 12, 13, 14, 15
 Row 4: [Beach 0]  [Beach 1]  [Beach 2]  [Wall 4]   ← indices 16, 17, 18, 19
 Row 5: [Beach 3]  [Beach 4]  [Beach 5]  [Wall 5]   ← indices 20, 21, 22, 23
 Row 6: [EMPTY]    [EMPTY]    [EMPTY]    [EMPTY]    ← indices 24, 25, 26, 27
-Row 7: [BotElev 0][BotElev 1][BotElev 2][Stairs]   ← indices 28, 29, 30, 31
+Row 7: [Left Stair][Center Stair][Right Stair][Single Stair] ← indices 28, 29, 30, 31
 ```
 
 **Tile index groups (row-major):**
 - Elevation grass: tiles 0–11 (rows 0–3, cols 0–2)
 - Elevation beach: tiles 12–23 (rows 4–5, cols 0–2)
 - Elevation wall:  tiles 3, 7, 11, 15, 19, 23 (col 3 of rows 0–5)
-- Elevation stairs: tile 31 (row 7, col 3)
+- Elevation stairs: single tile 31 (row 7, col 3); wide staircases tile the shared motif — 2-wide = left+right (28, 30), 3-wide = left+center+right (28, 29, 30)
 
 ## Implementation Steps
 

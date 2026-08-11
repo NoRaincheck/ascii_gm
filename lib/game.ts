@@ -44,6 +44,7 @@ export interface World {
   buildings: Building[];
   deco: Deco[];
   waterRocks: WaterRock[];
+  stairs: Array<{ start: number; width: number }>;
   player: Player;
 }
 
@@ -231,19 +232,63 @@ export function flatTileIndex(kind: 'grass' | 'beach', mask: number): number {
 }
 
 // The world is a terraced island: from the top of the map down — a raised
-// grass plateau, a cliff band (walls with a single stairs gap), lower grass,
-// then a beach shoreline at the bottom. Sea margins frame the island on the
-// top and sides so it floats in the water. The cliff band is impassable
-// except at the stairs, so the plateau is reachable only through that gap.
-function buildTerraced(world: World): void {
+// grass plateau, a cliff band, lower grass, then a beach shoreline at the
+// bottom. Sea margins frame the island on the top and sides so it floats in
+// the water. The 1-tile-tall cliff band is impassable except at the stairs —
+// at least one randomly-placed staircase, each 1-3 tiles wide and ≥10 units
+// from any other, lets the plateau be reached. Staircases ideally stay clear
+// of the sea margins; a spot up against the water is only used when no dry
+// position exists.
+function buildTerraced(world: World, rand: () => number): void {
   const { width, height } = world;
   const seaMargin = 2; // sea columns on each side
   const seaTop = 2; // sea rows at the top
   const beachH = 2; // beach rows at the bottom
   const lowerGrassH = 2; // lower grass rows between cliff and beach
   const cliffRow = Math.max(seaTop, height - beachH - lowerGrassH - 1);
-  const stairsCol = Math.floor(width / 2);
+  const minGap = 10; // minimum columns between any two stairs runs
+  const maxStairs = 3; // try to place up to this many staircases
+  const interiorStart = seaMargin; // first usable column (inclusive)
+  const interiorEnd = width - seaMargin - 1; // last usable column (inclusive)
 
+  // A staircase touches the sea when one of its ends sits against a margin.
+  const touchesWater = (start: number, width: number): boolean =>
+    start === interiorStart || start + width - 1 === interiorEnd;
+
+  // Staircase runs [start, start+width-1]. A run fits when it stays inside the
+  // interior and is ≥ minGap columns away from every already-placed run.
+  const stairs: Array<{ start: number; width: number }> = [];
+  const fits = (start: number, width: number): boolean => {
+    if (start < interiorStart || start + width - 1 > interiorEnd) return false;
+    for (const r of stairs) {
+      const gapBelow = start - (r.start + r.width - 1);
+      const gapAbove = r.start - (start + width - 1);
+      if (Math.max(gapAbove, gapBelow) < minGap) return false;
+    }
+    return true;
+  };
+
+  for (let i = 0; i < maxStairs; i++) {
+    let placed = false;
+    // Prefer runs away from the water; only fall back to the edges if no dry
+    // position lets this staircase fit.
+    for (const preferDry of [true, false]) {
+      if (placed) break;
+      for (let attempt = 0; attempt < 40 && !placed; attempt++) {
+        const width = 1 + Math.floor(rand() * 3);
+        const start = interiorStart + Math.floor(rand() * (interiorEnd - interiorStart + 1));
+        if (!fits(start, width)) continue;
+        if (preferDry && touchesWater(start, width)) continue;
+        stairs.push({ start, width });
+        placed = true;
+      }
+    }
+    if (!placed) break;
+  }
+  // Guarantee at least one staircase.
+  if (stairs.length === 0) stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1 });
+
+  world.stairs = stairs;
   world.terrain = [];
   for (let ty = 0; ty < height; ty++) {
     const terrainRow: TerrainKind[] = [];
@@ -254,7 +299,8 @@ function buildTerraced(world: World): void {
       } else if (ty >= height - beachH) {
         kind = 'beach';
       } else if (ty === cliffRow) {
-        kind = tx === stairsCol ? 'stairs' : 'cliff';
+        const isStairs = stairs.some((s) => tx >= s.start && tx < s.start + s.width);
+        kind = isStairs ? 'stairs' : 'cliff';
       } else {
         kind = 'grass';
       }
@@ -423,9 +469,10 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     buildings: [],
     deco: [],
     waterRocks: [],
+    stairs: [],
     player: { x: 0, y: 0, facing: 'down' },
   };
-  buildTerraced(world);
+  buildTerraced(world, rand);
 
   // Landmarks sit on a lattice so they line up nicely on the grid. Buildings
   // are placed first: in the terraced layout the buildable grass rows are
