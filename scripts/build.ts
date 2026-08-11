@@ -35,6 +35,10 @@ async function main() {
     'assets/Terrain/Ground/Tilemap_Flat.png': `${DOCS}/terrain_flat.png`,
     'assets/Terrain/Water/Water.png': `${DOCS}/water.png`,
     'assets/Terrain/Water/Foam/Foam.png': `${DOCS}/foam.png`,
+    'assets/Terrain/Water/Rocks/Rocks_01.png': `${DOCS}/Rocks_01.png`,
+    'assets/Terrain/Water/Rocks/Rocks_02.png': `${DOCS}/Rocks_02.png`,
+    'assets/Terrain/Water/Rocks/Rocks_03.png': `${DOCS}/Rocks_03.png`,
+    'assets/Terrain/Water/Rocks/Rocks_04.png': `${DOCS}/Rocks_04.png`,
   };
   for (let i = 1; i <= 15; i++) {
     // skip large deco items for now

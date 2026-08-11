@@ -140272,6 +140272,27 @@ function rectOnGrass(world, r) {
   }
   return true;
 }
+function placeWaterRocks(world, rand) {
+  const spacing = 4;
+  world.waterRocks = [];
+  const variants = [1, 2, 3, 4];
+  const candidates = [];
+  for (let ty = 0; ty < world.height; ty++) {
+    for (let tx = 0; tx < world.width; tx++) {
+      if (world.terrain[ty][tx] === "sea" || world.terrain[ty][tx] === "coast") {
+        candidates.push([tx, ty]);
+      }
+    }
+  }
+  shuffleWith(candidates, rand);
+  for (const [tx, ty] of candidates) {
+    if (world.waterRocks.some((r) => Math.max(Math.abs(r.x - tx), Math.abs(r.y - ty)) < spacing)) continue;
+    const variant = variants[Math.floor(rand() * variants.length)];
+    const frameOffset = Math.floor(rand() * 8);
+    world.waterRocks.push({ x: tx, y: ty, variant, frameOffset });
+    if (world.waterRocks.length >= 20) break;
+  }
+}
 function placeDeco(world, rand) {
   const spacing = 5;
   world.deco = [];
@@ -140327,7 +140348,7 @@ function reachableAt(world, sx, sy) {
 }
 function generateWorld(seed, width = 16, height = 16) {
   const rand = createRng(seed);
-  const world = { width, height, terrain: [], trees: [], buildings: [], deco: [], player: { x: 0, y: 0, facing: "down" } };
+  const world = { width, height, terrain: [], trees: [], buildings: [], deco: [], waterRocks: [], player: { x: 0, y: 0, facing: "down" } };
   buildIsland(world, rand);
   const treeSlots = shuffleWith(
     (() => {
@@ -140427,6 +140448,7 @@ function generateWorld(seed, width = 16, height = 16) {
     return baseReachable(s.x + s.w / 2, s.y + s.h);
   });
   placeDeco(world, rand);
+  placeWaterRocks(world, rand);
   return world;
 }
 function movePlayer(world, dx, dy, step) {
@@ -140496,6 +140518,10 @@ var GameScene = class extends import_phaser.default.Scene {
     this.load.image("flat", "terrain_flat.png");
     this.load.image("water", "water.png");
     this.load.spritesheet("foam", "foam.png", { frameWidth: 192, frameHeight: 192 });
+    for (let i = 1; i <= 4; i++) {
+      const n = String(i).padStart(2, "0");
+      this.load.spritesheet(`rock${n}`, `Rocks_${n}.png`, { frameWidth: 128, frameHeight: 128 });
+    }
   }
   create() {
     this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
@@ -140509,7 +140535,19 @@ var GameScene = class extends import_phaser.default.Scene {
         repeat: -1
       });
     }
+    for (let i = 1; i <= 4; i++) {
+      const key = `rock${String(i).padStart(2, "0")}`;
+      if (!this.anims.exists(key)) {
+        this.anims.create({
+          key,
+          frames: this.anims.generateFrameNumbers(key, { start: 0, end: 7 }),
+          frameRate: 8,
+          repeat: -1
+        });
+      }
+    }
     this.buildFoam();
+    this.buildWaterRocks();
     this.buildDeco();
     if (!this.anims.exists("tree")) {
       this.anims.create({
@@ -140562,8 +140600,8 @@ var GameScene = class extends import_phaser.default.Scene {
     const waterTiles = map.addTilesetImage("water", "water");
     const flatTiles = map.addTilesetImage("flat", "flat");
     map.createBlankLayer("water", waterTiles).fill(0).setDepth(-10);
-    const beachLayer = map.createBlankLayer("beach", flatTiles).setDepth(-8);
-    const grassLayer = map.createBlankLayer("grass", flatTiles).setDepth(-7);
+    const beachLayer = map.createBlankLayer("beach", flatTiles).setDepth(-7);
+    const grassLayer = map.createBlankLayer("grass", flatTiles).setDepth(-6);
     for (let ty = 0; ty < MAP_SIZE; ty++) {
       for (let tx = 0; tx < MAP_SIZE; tx++) {
         const kind = this.world.terrain[ty][tx];
@@ -140585,7 +140623,7 @@ var GameScene = class extends import_phaser.default.Scene {
       for (let tx = 0; tx < MAP_SIZE; tx++) {
         if (!landTouchesWater(this.world, tx, ty)) continue;
         const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, "foam");
-        sprite.setDepth(-9);
+        sprite.setDepth(-8);
         foamSprites.push(sprite);
       }
     }
@@ -140593,13 +140631,28 @@ var GameScene = class extends import_phaser.default.Scene {
       sprite.play({ key: "foam", startFrame: i * 3 % 8 });
     });
   }
+  // Animated water rocks on sea/coast tiles. Each 128×128 frame is a rock with
+  // water splash; 4 variants (Rocks_01-04) each have 8 animation frames. Placed
+  // during world generation with staggered start frames so they splash independently.
+  buildWaterRocks() {
+    for (const rock of this.world.waterRocks) {
+      const key = `rock${String(rock.variant).padStart(2, "0")}`;
+      const sprite = this.add.sprite(
+        rock.x * TILE + TILE / 2,
+        rock.y * TILE + TILE / 2,
+        key
+      );
+      sprite.setDepth(-9);
+      sprite.play({ key, startFrame: rock.frameOffset });
+    }
+  }
   // Grass decorations: pure overlay sprites, no collision. Drawn just above the
   // grass layer but below trees/buildings/player.
   buildDeco() {
     for (const d of this.world.deco) {
       const off = decoFrameOffset(d.variant);
       const key = `deco${String(d.variant).padStart(2, "0")}`;
-      this.add.sprite(d.x * TILE + off.dx, d.y * TILE + off.dy, key).setDepth(-6);
+      this.add.sprite(d.x * TILE + off.dx, d.y * TILE + off.dy, key).setDepth(-5);
     }
   }
   update(time, delta) {

@@ -21,6 +21,13 @@ export interface Deco {
   variant: number;
 }
 
+export interface WaterRock {
+  x: number;
+  y: number;
+  variant: number; // 1-4, maps to Rocks_01-04
+  frameOffset: number; // staggered animation start frame
+}
+
 export interface Player {
   x: number;
   y: number;
@@ -36,6 +43,7 @@ export interface World {
   trees: Tree[];
   buildings: Building[];
   deco: Deco[];
+  waterRocks: WaterRock[];
   player: Player;
 }
 
@@ -489,6 +497,33 @@ function rectOnGrass(world: World, r: Rect): boolean {
   return true;
 }
 
+// Place animated water rocks on random sea/coast tiles. Each variant (1-4)
+// is a 128×128 spritesheet with 8 splash-animation frames. Rocks are placed
+// randomly on water tiles with a minimum spacing to avoid clustering, and
+// staggered animation offsets so they don't all splash in lockstep.
+function placeWaterRocks(world: World, rand: () => number): void {
+  const spacing = 4;
+  world.waterRocks = [];
+  const variants = [1, 2, 3, 4];
+  const candidates: Array<[number, number]> = [];
+  for (let ty = 0; ty < world.height; ty++) {
+    for (let tx = 0; tx < world.width; tx++) {
+      if (world.terrain[ty][tx] === 'sea' || world.terrain[ty][tx] === 'coast') {
+        candidates.push([tx, ty]);
+      }
+    }
+  }
+  shuffleWith(candidates, rand);
+  for (const [tx, ty] of candidates) {
+    // Check spacing against already-placed rocks
+    if (world.waterRocks.some((r) => Math.max(Math.abs(r.x - tx), Math.abs(r.y - ty)) < spacing)) continue;
+    const variant = variants[Math.floor(rand() * variants.length)];
+    const frameOffset = Math.floor(rand() * 8);
+    world.waterRocks.push({ x: tx, y: ty, variant, frameOffset });
+    if (world.waterRocks.length >= 20) break; // cap at 20 rocks
+  }
+}
+
 // Scatter decorative sprites over grass only, at most one per 5x5-tile block
 // (~1 per 25-tile box). No collision — the character walks over them. A few
 // candidate tiles are tried per block so one rejected candidate doesn't empty
@@ -551,7 +586,7 @@ function reachableAt(world: World, sx: number, sy: number): number {
 
 export function generateWorld(seed: number, width = 16, height = 16): World {
   const rand = createRng(seed);
-  const world: World = { width, height, terrain: [], trees: [], buildings: [], deco: [], player: { x: 0, y: 0, facing: 'down' } };
+  const world: World = { width, height, terrain: [], trees: [], buildings: [], deco: [], waterRocks: [], player: { x: 0, y: 0, facing: 'down' } };
   buildIsland(world, rand);
 
   // Landmarks sit on a lattice so they line up nicely on the grid.
@@ -662,6 +697,8 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   });
 
   placeDeco(world, rand);
+
+  placeWaterRocks(world, rand);
 
   return world;
 }
