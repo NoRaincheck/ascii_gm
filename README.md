@@ -1,7 +1,6 @@
 # ASCII Game Master
 
-A Deno-powered GM card generator for solo TTRPGs. Generates random oracle rolls, NPC names, quest hooks, and personality
-traits rendered in a fixed-width box-drawn card — to your terminal, as a PNG, or in your browser.
+A Deno-powered toolkit for solo TTRPGs and retro games. Generates random oracle rolls, NPC names, quest hooks, and personality traits rendered in a fixed-width box-drawn card — to your terminal, as a PNG, or in your browser. Includes a Phaser-based isometric game with procedural world generation.
 
 ## Quick Start
 
@@ -10,6 +9,12 @@ deno task cli
 ```
 
 Prints a colorized card to the terminal (macchiato dark theme).
+
+```sh
+deno task dev
+```
+
+Opens a browser at `http://localhost:8080` with both the card generator and the game.
 
 ## CLI
 
@@ -58,13 +63,23 @@ deno task cli --seed 99 --theme latte --layout landscape --output-dir .
 deno task dev
 ```
 
-Opens a browser at `http://localhost:8080` with:
+Opens a browser at `http://localhost:8080` with two modes:
+
+### Card Generator
 
 - **Generate** — creates a new random card
 - **Theme** — toggle macchiato (dark) / latte (light)
 - **Layout** — toggle portrait (22×18) / landscape (30×10)
 - **Image Mode** — pixel-perfect rendering from the BIOS ROM spritesheet
 - **Canvas Mode** — monospace canvas text rendering (scalable)
+
+### Game
+
+- WASD / Arrow keys to move the warrior character
+- Procedurally generated island world with terrain, buildings, and trees
+- Collision detection against water, trees, and buildings
+- Animated water foam along shorelines
+- Regenerate with a new seed for a different world
 
 ### GitHub Pages
 
@@ -104,22 +119,39 @@ the same numbers.
 
 ```
 archive/                  Archived Python implementation
-lib/                      Shared library (CLI + web)
-├── text_generator.ts     Token-based text generation
-├── oracle_data.ts        Oracle tables and card template
-├── theme.ts              Catppuccin themes and colorization
+lib/                      Shared library (CLI + web + game)
 ├── card.ts               Card generation orchestration
+├── canvas_loader.ts      Deno CLI canvas helpers
+├── game.ts               World generation, collision, movement
+├── mod.ts                Public module exports
+├── oracle_data.ts        Oracle tables and card template
+├── rng.ts                PRNG utilities (mulberry32)
 ├── spritesheet.ts        BIOS font glyph rendering (Canvas 2D)
-└── terminal.ts           ANSI terminal output
+├── terminal.ts           ANSI terminal output
+├── text_generator.ts     Token-based text generation
+└── theme.ts              Catppuccin themes and colorization
 cli.ts                    CLI entry point
 www/                      Web app source
 ├── index.html
 ├── app.js
+├── game.ts               Phaser game scene
 └── style.css
 docs/                     Built site for GitHub Pages
 scripts/
 ├── serve.ts              Dev server
-└── build.ts              GitHub Pages build
+├── build.ts              GitHub Pages build
+├── samples.ts            Sample card generation
+└── bbox_probe.ts         Sprite bounding-box probes
+assets/                   Game assets (aseprite + PNG)
+├── Deco/                 Grass decoration sprites
+├── Effects/              Explosion, fire animations
+├── Factions/             Knights & Goblins (buildings, troops)
+├── Resources/            Gold mine, sheep, trees
+├── Terrain/              Ground, water, foam tilesets
+└── UI/                   Buttons, banners, icons
+wang_3050_BIOS_ROM__8x16.png   BIOS ROM spritesheet (8×16 glyphs)
+ironsworn_oracles.json    Oracle data for card generation
+NOTES.md                  TODO / development notes
 ```
 
 ## License
