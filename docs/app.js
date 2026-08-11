@@ -137896,7 +137896,7 @@ var require_phaser = __commonJS({
                 var Range = function(a, b, options) {
                   var max = GetValue(options, "max", 0);
                   var qty = GetValue(options, "qty", 1);
-                  var random2 = GetValue(options, "random", false);
+                  var random3 = GetValue(options, "random", false);
                   var randomB = GetValue(options, "randomB", false);
                   var repeat = GetValue(options, "repeat", 0);
                   var yoyo = GetValue(options, "yoyo", false);
@@ -137917,7 +137917,7 @@ var require_phaser = __commonJS({
                   }
                   for (var i = 0; i <= repeat; i++) {
                     var chunk = BuildChunk(a, b, qty);
-                    if (random2) {
+                    if (random3) {
                       Shuffle(chunk);
                     }
                     out = out.concat(chunk);
@@ -139176,12 +139176,37 @@ function mulberry32(state) {
   t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
   return ((t ^ t >>> 14) >>> 0) / 4294967296;
 }
+function createRng(seed) {
+  let state = seed >>> 0;
+  return function next() {
+    state = state + 1831565813 | 0;
+    let t = Math.imul(state ^ state >>> 15, 1 | state);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
 function random() {
   if (_seed !== null) {
     _state = _state + 1831565813 | 0;
     return mulberry32(_state);
   }
   return Math.random();
+}
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function shuffleWith(arr, rand) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 // lib/text_generator.ts
@@ -139243,20 +139268,12 @@ var _oracles = [];
 function setOracles(data) {
   _oracles = data;
 }
-function randomShuffle(val) {
-  const arr = [...val];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
 function getItems(key) {
   const oracle = _oracles.filter((x) => x.title === key);
   if (oracle.length === 0) return [];
   const oracleValues = Object.values(oracle[0].results);
   const filtered = oracleValues.filter((x) => !x.startsWith("Roll "));
-  return randomShuffle(filtered);
+  return shuffle(filtered);
 }
 function diceRange(num) {
   return Array.from({ length: num }, (_, i) => String(i + 1));
@@ -139337,8 +139354,8 @@ function buildPortraitGenData() {
     "A Faction",
     "The PCs"
   ];
-  const shuffledActions = randomShuffle(actionFocus);
-  const shuffledTopics = randomShuffle(topicFocus);
+  const shuffledActions = shuffle(actionFocus);
+  const shuffledTopics = shuffle(topicFocus);
   genData["focus"] = shuffledActions.map((a, i) => `${a}, ${shuffledTopics[i]}`).filter((x) => x.length <= 17).map((x) => x.padEnd(17, " "));
   const names = getItems("Ironlander Names");
   const nameChunks = splitList(names, 3);
@@ -140110,7 +140127,7 @@ function buildIsland(world, rand) {
         [beachTiles[i], beachTiles[j]] = [beachTiles[j], beachTiles[i]];
       }
       for (const [tx, ty] of beachTiles) {
-        const shuffled = shuffle(neighbors.slice(), rand);
+        const shuffled = shuffleWith(neighbors.slice(), rand);
         for (const [dx, dy] of shuffled) {
           const nx = tx + dx;
           const ny = ty + dy;
@@ -140220,15 +140237,6 @@ function hashString(str) {
   }
   return h >>> 0;
 }
-function createRng(seed) {
-  let state = seed >>> 0;
-  return function next() {
-    state = state + 1831565813 | 0;
-    let t = Math.imul(state ^ state >>> 15, 1 | state);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
 function canOccupyAt(world, px, py) {
   if (!inBounds(charRect(px, py), world.width, world.height)) return false;
   for (const kind of standingTileKinds(world, px, py)) {
@@ -140317,19 +140325,11 @@ function reachableAt(world, sx, sy) {
   }
   return count;
 }
-function shuffle(arr, rand) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
 function generateWorld(seed, width = 16, height = 16) {
   const rand = createRng(seed);
   const world = { width, height, terrain: [], trees: [], buildings: [], deco: [], player: { x: 0, y: 0, facing: "down" } };
   buildIsland(world, rand);
-  const treeSlots = shuffle(
+  const treeSlots = shuffleWith(
     (() => {
       const slots = [];
       for (let ty = 2; ty + 2 < height; ty += 3) {
@@ -140351,7 +140351,7 @@ function generateWorld(seed, width = 16, height = 16) {
     world.trees.push({ x: tx, y: ty });
   }
   const numBuildings = 1 + Math.floor(rand() * 2);
-  const houseSlots = shuffle(
+  const houseSlots = shuffleWith(
     (() => {
       const slots = [];
       for (let by = 2; by + 2 < height; by += 3) {

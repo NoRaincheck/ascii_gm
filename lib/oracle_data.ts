@@ -1,4 +1,4 @@
-import { random, randomInt } from './rng.ts';
+import { random, randomInt, shuffle } from './rng.ts';
 import { generateText } from './text_generator.ts';
 
 export type Layout = 'portrait' | 'landscape';
@@ -29,21 +29,12 @@ export function getOracles(): OracleEntry[] {
   return _oracles;
 }
 
-function randomShuffle<T>(val: T[]): T[] {
-  const arr = [...val];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
 function getItems(key: string): string[] {
   const oracle = _oracles.filter((x) => x.title === key);
   if (oracle.length === 0) return [];
   const oracleValues = Object.values(oracle[0].results);
   const filtered = oracleValues.filter((x) => !x.startsWith('Roll '));
-  return randomShuffle(filtered);
+  return shuffle(filtered);
 }
 
 function diceRange(num: number): string[] {
@@ -142,8 +133,8 @@ function buildPortraitGenData(): Record<string, unknown> {
     'The PCs',
   ];
 
-  const shuffledActions = randomShuffle(actionFocus);
-  const shuffledTopics = randomShuffle(topicFocus);
+  const shuffledActions = shuffle(actionFocus);
+  const shuffledTopics = shuffle(topicFocus);
   genData['focus'] = shuffledActions
     .map((a, i) => `${a}, ${shuffledTopics[i]}`)
     .filter((x) => x.length <= 17)

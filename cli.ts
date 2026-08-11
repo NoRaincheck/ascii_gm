@@ -2,15 +2,17 @@ import { generateCard, getGenData } from './lib/card.ts';
 import { loadOracles } from './lib/oracle_data.ts';
 import type { Layout } from './lib/oracle_data.ts';
 import { printCard } from './lib/terminal.ts';
-import { parseSpritesheet, renderCardToCanvas } from './lib/spritesheet.ts';
+import { renderCardToCanvas } from './lib/spritesheet.ts';
 import type { ThemeName } from './lib/theme.ts';
 import { setSeed } from './lib/rng.ts';
+import { loadSpritesheetDeno } from './lib/canvas_loader.ts';
+import type { CanvasAPI } from './lib/canvas_loader.ts';
 
 async function main() {
   const args = parseArgs(Deno.args);
   const theme = (args.theme ?? 'macchiato') as ThemeName;
   const layout = (args.layout ?? 'portrait') as Layout;
-  const count = args.count ?? 1;
+  const count = Number(args.count) || 1;
   const outputDir = args['output-dir'];
 
   if (args.seed !== undefined) {
@@ -20,20 +22,12 @@ async function main() {
   loadOracles('ironsworn_oracles.json');
 
   if (outputDir) {
-    Deno.mkdirSync(outputDir, { recursive: true });
+    Deno.mkdirSync(outputDir as string, { recursive: true });
   }
 
-  const { createCanvas, loadImage } = await import('npm:canvas');
+  await loadSpritesheetDeno(await importCanvas());
 
-  const spritesheetImg = await loadImage('wang_3050_BIOS_ROM__8x16.png');
-  const tempCanvas = createCanvas(spritesheetImg.width, spritesheetImg.height);
-  const tempCtx = tempCanvas.getContext('2d');
-  tempCtx.drawImage(spritesheetImg, 0, 0);
-  parseSpritesheet(spritesheetImg, tempCtx as unknown as CanvasRenderingContext2D);
-  tempCanvas.width = 0;
-  tempCanvas.height = 0;
-
-  for (let idx = 0; idx < count; idx++) {
+  for (let idx = 0; idx < Number(count); idx++) {
     const card = generateCard(layout);
 
     if (count === 1) {
@@ -44,10 +38,10 @@ async function main() {
       const filename = count === 1 ? `card_${theme}_${layout}.png` : `card_${String(idx).padStart(3, '0')}.png`;
       const outPath = `${outputDir}/${filename}`;
 
-      const tempCtx2 = createCanvas(1, 1).getContext('2d');
-      const canvas = createCanvas(1, 1);
-      const ctx = canvas.getContext('2d');
-      renderCardToCanvas(ctx as unknown as CanvasRenderingContext2D, card, theme, true, layout);
+      const c = await importCanvas();
+      const canvas = c.createCanvas(1, 1) as { width: number; height: number; getContext: (type: string) => unknown; toBuffer: (format: string) => Uint8Array };
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+      renderCardToCanvas(ctx, card, theme, true, layout);
 
       const buf = canvas.toBuffer('image/png');
       Deno.writeFileSync(outPath, new Uint8Array(buf));
@@ -88,6 +82,14 @@ Options:
   --output-dir DIR   Output directory for PNG files
   --seed N           Seed for reproducible generation
   --help, -h         Show this help message`);
+}
+
+async function importCanvas(): Promise<CanvasAPI> {
+  const canvas = await import('npm:canvas');
+  return {
+    createCanvas: canvas.createCanvas,
+    loadImage: canvas.loadImage,
+  };
 }
 
 if (import.meta.main) {

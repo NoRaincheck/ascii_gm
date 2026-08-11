@@ -1,2 +1,8 @@
 node_modules/
 cards/
+
+# Build artifacts
+docs/app.js
+
+# OS
+.DS_Store
