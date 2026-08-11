@@ -12,6 +12,9 @@
     "esbuild": "npm:esbuild@^0.24.0",
     "phaser": "npm:phaser@^3.87.0"
   },
+  "compilerOptions": {
+    "lib": ["deno.window", "deno.ns", "dom", "dom.iterable", "esnext"]
+  },
   "fmt": {
     "indentWidth": 2,
     "lineWidth": 120,

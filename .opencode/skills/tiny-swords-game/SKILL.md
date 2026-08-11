@@ -78,12 +78,16 @@ Terrain is drawn by `GameScene.buildTerrain()` as stacked Phaser tilemap layers,
 | Depth | Layer | Tileset | Contents |
 |---|---|---|---|
 | -10 | `water` | `water.png` | full-map fill of the deep-sea tile |
-| -9 | `foam` sprites | `Foam.png` | animated foam on shoreline water tiles |
-| -8 | `beach` | `Tilemap_Flat.png` (block at cols 5–8) | sand ring |
-| -7 | `grass` | `Tilemap_Flat.png` (block at cols 0–3) | grass interior |
+| -7 | `elevation` | `Tilemap_Elevation.png` | the cliff band (walls + one stairs tile) |
+| -8 | `foam` sprites | `Foam.png` | animated foam on shoreline land tiles |
+| -7 | `beach` | `Tilemap_Flat.png` (block at cols 5–8) | bottom beach band |
+| -6 | `grass` | `Tilemap_Flat.png` (block at cols 0–3) | grass plateau + lower ground |
 
-- Water foam: `GameScene.buildFoam()` places an animated 192×192 `foam` sprite centered on every land tile where `landTouchesWater(world, tx, ty)` is true (beach/grass with an orthogonal sea/coast neighbor). The foam blob is centered under the opaque land tile (depth −9, below beach −8/grass −7), so the full foam center is hidden and only the outer foam strips show as ripples over the adjacent water. Start frames are staggered (`(i * 3) % 8`) so adjacent foam isn't animated in lockstep.
-- `coast` terrain tiles get **no flat layer** — they show the water fill + foam below. `Tilemap_Elevation.png` (elevation/foamy coast tiles) is **not used**; it is not loaded in `preload()` and not copied by `scripts/build.ts`.
+- The world is a **terraced island** (`buildTerraced` in `lib/game.ts`): horizontal bands from the bottom of the map up — beach, lower grass, a cliff band, then a raised grass plateau — framed by sea margins on the top and sides. `TerrainKind` = `sea | coast | beach | grass | cliff | stairs`.
+- Elevation layer: `GameScene.buildTerrain()` calls `elevationTileIndex(kind, ty, tx)` from `lib/elevation_tileset.ts` for every tile and `putTileAt`s the result at depth −7 (above the −8 foam, below beach/grass): a foam blob overhangs one tile past its land tile in every direction, so the elevation layer must sit above the foam to keep the blob's ring from rendering over cliff walls. Only the cliff band gets elevation tiles: `cliff` → a wall tile (col 3 variant by map row), `stairs` → the stairs tile (31); everything else is flat (-1). `Tilemap_Elevation.png` is **256×512 = 4×8 tiles of 64px**: rows 0–3 grass elevation (indices 0–11), rows 4–5 beach elevation (12–23), row 6 empty, row 7 bottom elevation + stairs (28–31); walls live in col 3 of rows 0–5 (3,7,11,15,19,23).
+- The cliff band is impassable — `canOccupyAt` blocks `sea`/`coast`/`cliff` — except for the single `stairs` tile, so the plateau is reachable only through that gap.
+- Water foam: `GameScene.buildFoam()` places an animated 192×192 `foam` sprite centered on every land tile where `landTouchesWater(world, tx, ty)` is true (beach/grass with an orthogonal sea/coast neighbor). The foam blob is centered under the opaque land tile (depth −8, below beach −7/grass −6), so the full foam center is hidden and only the outer foam strips show as ripples over the adjacent water. Start frames are staggered (`(i * 3) % 8`) so adjacent foam isn't animated in lockstep.
+- `sea`/`coast` tiles get **no flat layer** — they show the water fill + foam below.
 - Camera background is `WATER` (`#47aba9`); beyond-map ocean renders as that color.
 
 ### Tilemap_Flat.png autotile convention

@@ -28,8 +28,9 @@ export function getGlyphIndex(ch: string): number | undefined {
 }
 
 export function parseSpritesheet(imageSource: CanvasImageSource, ctx: CanvasRenderingContext2D): ImageData[] {
-  const cols = Math.floor(imageSource.width as number / CELL_X);
-  const rows = Math.ceil((imageSource.height as number) / CELL_Y);
+  const size = imageSource as { width: number; height: number };
+  const cols = Math.floor(size.width / CELL_X);
+  const rows = Math.ceil(size.height / CELL_Y);
   const glyphs: ImageData[] = [];
 
   for (let row = 0; row < rows; row++) {

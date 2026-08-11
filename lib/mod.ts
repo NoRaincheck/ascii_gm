@@ -30,8 +30,19 @@ export { printCard } from './terminal.ts';
 // Canvas rendering (spritesheet + card rendering)
 export { getGlyphIndex, isLoaded, parseSpritesheet, renderCardToCanvas } from './spritesheet.ts';
 
+// Elevation tileset (cliff-face / wall rendering for the terrain game)
+export {
+  elevationTileIndex,
+  getElevationTile,
+  isElevationLoaded,
+  parseElevationTileset,
+  stairsTileIndex,
+  wallTileIndex,
+} from './elevation_tileset.ts';
+export type { TerrainKind } from './elevation_tileset.ts';
+
 // PRNG utilities
-export { createRng, random, randomInt, setSeed, getSeed, shuffle, shuffleWith } from './rng.ts';
+export { createRng, getSeed, random, randomInt, setSeed, shuffle, shuffleWith } from './rng.ts';
 
 // Deno CLI canvas helpers
 export type { CanvasAPI } from './canvas_loader.ts';

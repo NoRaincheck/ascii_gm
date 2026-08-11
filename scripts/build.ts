@@ -26,13 +26,14 @@ async function main() {
   await Deno.copyFile('wang_3050_BIOS_ROM__8x16.png', `${DOCS}/spritesheet.png`);
   await Deno.copyFile('ironsworn_oracles.json', `${DOCS}/ironsworn_oracles.json`);
 
-  const gameAssets = {
+  const gameAssets: Record<string, string> = {
     'assets/Factions/Knights/Troops/Warrior/Blue/Warrior_Blue.png': `${DOCS}/warrior_blue.png`,
     'assets/Factions/Knights/Buildings/House/House_Blue.png': `${DOCS}/house_blue.png`,
     'assets/Factions/Knights/Buildings/Tower/Tower_Blue.png': `${DOCS}/tower_blue.png`,
     'assets/Factions/Knights/Buildings/Castle/Castle_Blue.png': `${DOCS}/castle_blue.png`,
     'assets/Resources/Trees/Tree.png': `${DOCS}/tree.png`,
     'assets/Terrain/Ground/Tilemap_Flat.png': `${DOCS}/terrain_flat.png`,
+    'assets/Terrain/Ground/Tilemap_Elevation.png': `${DOCS}/terrain_elevation.png`,
     'assets/Terrain/Water/Water.png': `${DOCS}/water.png`,
     'assets/Terrain/Water/Foam/Foam.png': `${DOCS}/foam.png`,
     'assets/Terrain/Water/Rocks/Rocks_01.png': `${DOCS}/Rocks_01.png`,

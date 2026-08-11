@@ -1,5 +1,17 @@
 import Phaser from 'phaser';
-import { BUILDING_TYPES, type BuildingType, decoFrameOffset, flatEdgeMask, flatTileIndex, generateWorld, hashString, landTouchesWater, movePlayer, TILE } from '../lib/game.ts';
+import {
+  BUILDING_TYPES,
+  type BuildingType,
+  decoFrameOffset,
+  flatEdgeMask,
+  flatTileIndex,
+  generateWorld,
+  hashString,
+  landTouchesWater,
+  movePlayer,
+  TILE,
+} from '../lib/game.ts';
+import { elevationTileIndex } from '../lib/elevation_tileset.ts';
 import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
@@ -50,6 +62,7 @@ class GameScene extends Phaser.Scene {
       this.load.image(`deco${n}`, `deco_${n}.png`);
     }
     this.load.image('flat', 'terrain_flat.png');
+    this.load.image('elevation', 'terrain_elevation.png');
     this.load.image('water', 'water.png');
     this.load.spritesheet('foam', 'foam.png', { frameWidth: 192, frameHeight: 192 });
     for (let i = 1; i <= 4; i++) {
@@ -149,21 +162,29 @@ class GameScene extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys('W,A,S,D') as GameScene['keys'];
   }
 
-  // Layered tilemap: deep sea (water.png) → sand beach (Tilemap_Flat) → grass
-  // top (Tilemap_Flat). Tilemap_Elevation (foamy coast) is not used for now.
-  // 64px tiles, one game tile each, so the world grid lines up with
-  // collision/placement. Coast terrain tiles simply show the water fill below.
+  // Layered tilemap, bottom to top: deep sea (water.png) → foam → elevation
+  // cliff band (Tilemap_Elevation) → beach → grass. 64px tiles, one game tile
+  // each, so the world grid lines up with collision/placement. The cliff band
+  // shows the wall tiles (with one stairs tile at the climb point); beach and
+  // grass tiles draw the flat ground. Sea/coast get no flat layer.
   private buildTerrain() {
     const map = this.make.tilemap({ width: MAP_SIZE, height: MAP_SIZE, tileWidth: TILE, tileHeight: TILE });
     const waterTiles = map.addTilesetImage('water', 'water')!;
+    const elevationTiles = map.addTilesetImage('elevation', 'elevation')!;
     const flatTiles = map.addTilesetImage('flat', 'flat')!;
     map.createBlankLayer('water', waterTiles)!.fill(0).setDepth(-10);
+    // Elevation sits above the foam (depth -8): a foam blob overhangs one tile
+    // past its land tile in every direction, and its ring must never render over
+    // a cliff wall — only over the sea it is meant to ripple into.
+    const elevationLayer = map.createBlankLayer('elevation', elevationTiles)!.setDepth(-7);
     const beachLayer = map.createBlankLayer('beach', flatTiles)!.setDepth(-7);
     const grassLayer = map.createBlankLayer('grass', flatTiles)!.setDepth(-6);
     for (let ty = 0; ty < MAP_SIZE; ty++) {
       for (let tx = 0; tx < MAP_SIZE; tx++) {
         const kind = this.world.terrain[ty][tx];
-        if (kind === 'beach' || kind === 'grass') {
+        if (kind === 'cliff' || kind === 'stairs') {
+          elevationLayer.putTileAt(elevationTileIndex(kind, ty, tx), tx, ty);
+        } else if (kind === 'beach' || kind === 'grass') {
           const layer = kind === 'beach' ? beachLayer : grassLayer;
           layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);
         }
@@ -173,7 +194,7 @@ class GameScene extends Phaser.Scene {
 
   // Animated foam ripples along the coast. Each 192x192 frame is a foam blob
   // centered on the frame; a sprite is centered on every land tile that touches
-  // water, so the opaque beach/grass tile drawn above (depth -8/-7) hides the
+  // water, so the opaque beach/grass tile drawn above (depth -7/-6) hides the
   // blob's full center and only the outer foam strips show over the water as
   // ripples. Start frames are staggered per tile to avoid lockstep animation.
   private buildFoam() {

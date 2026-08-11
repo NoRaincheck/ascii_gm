@@ -34,7 +34,7 @@ export interface Player {
   facing: 'up' | 'down' | 'left' | 'right';
 }
 
-export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass';
+export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'stairs';
 
 export interface World {
   width: number;
@@ -230,210 +230,37 @@ export function flatTileIndex(kind: 'grass' | 'beach', mask: number): number {
   return row * 10 + base + col;
 }
 
-// Simple hash-based noise for deterministic randomness.
-function noise2d(x: number, y: number, seed: number): number {
-  let h = (seed ^ (x * 374761393) ^ (y * 668265263)) >>> 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  h = h ^ (h >>> 16);
-  return (h >>> 0) / 4294967296;
-}
+// The world is a terraced island: from the top of the map down — a raised
+// grass plateau, a cliff band (walls with a single stairs gap), lower grass,
+// then a beach shoreline at the bottom. Sea margins frame the island on the
+// top and sides so it floats in the water. The cliff band is impassable
+// except at the stairs, so the plateau is reachable only through that gap.
+function buildTerraced(world: World): void {
+  const { width, height } = world;
+  const seaMargin = 2; // sea columns on each side
+  const seaTop = 2; // sea rows at the top
+  const beachH = 2; // beach rows at the bottom
+  const lowerGrassH = 2; // lower grass rows between cliff and beach
+  const cliffRow = Math.max(seaTop, height - beachH - lowerGrassH - 1);
+  const stairsCol = Math.floor(width / 2);
 
-// Smooth noise: interpolate between 4 surrounding noise values.
-function smoothNoise(x: number, y: number, seed: number): number {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = x - ix;
-  const fy = y - iy;
-  // Smoothstep
-  const sx = fx * fx * (3 - 2 * fx);
-  const sy = fy * fy * (3 - 2 * fy);
-  const n00 = noise2d(ix, iy, seed);
-  const n10 = noise2d(ix + 1, iy, seed);
-  const n01 = noise2d(ix, iy + 1, seed);
-  const n11 = noise2d(ix + 1, iy + 1, seed);
-  const n0 = n00 * (1 - sx) + n10 * sx;
-  const n1 = n01 * (1 - sx) + n11 * sx;
-  return n0 * (1 - sy) + n1 * sy;
-}
-
-// The world is always an island: a large grass mass, a sand beach ring, a
-// foamy coast ring, then deep sea. Uses a noisy distance-field with
-// percentile-based band assignment so beach is always ~10% of total tiles.
-// Beach extends inland in irregular patches where the shoreline bulges.
-function buildIsland(world: World, rand: () => number): void {
-  const cx = (world.width - 1) / 2;
-  const cy = (world.height - 1) / 2;
-  const rx = world.width * (0.42 + rand() * 0.04);
-  const ry = world.height * (0.42 + rand() * 0.04);
-  const noiseSeed = Math.floor(rand() * 1e6);
-  const totalTiles = world.width * world.height;
-  const targetBeachTiles = Math.floor(totalTiles * 0.10);
-  const targetCoastTiles = Math.floor(totalTiles * 0.05);
-
-  // Pass 1: compute noisy distance field and collect land distances.
-  const distances: number[][] = [];
-  const landDistances: number[] = [];
-  for (let ty = 0; ty < world.height; ty++) {
-    const row: number[] = [];
-    for (let tx = 0; tx < world.width; tx++) {
-      const baseD = Math.hypot((tx - cx) / rx, (ty - cy) / ry);
-      const n = (smoothNoise(tx * 0.4, ty * 0.4, noiseSeed) - 0.5) * 0.14;
-      const d = baseD + n;
-      row.push(d);
-      if (d <= 1) landDistances.push(d);
-    }
-    distances.push(row);
-  }
-
-  // Sort land tiles by distance to find percentile thresholds.
-  landDistances.sort((a, b) => a - b);
-  const landTiles = landDistances.length;
-
-  // Beach = ~10% of total, coast = ~5% of total, rest = grass.
-  const grassEnd = Math.max(0, landTiles - targetBeachTiles - targetCoastTiles);
-  const beachEnd = Math.min(landTiles, grassEnd + targetBeachTiles);
-  const grassThreshold = landDistances[grassEnd];
-  const beachThreshold = landDistances[beachEnd];
-
-  // Pass 2: assign terrain by distance thresholds.
   world.terrain = [];
-  for (let ty = 0; ty < world.height; ty++) {
+  for (let ty = 0; ty < height; ty++) {
     const terrainRow: TerrainKind[] = [];
-    for (let tx = 0; tx < world.width; tx++) {
-      const d = distances[ty][tx];
-      if (d > 1) {
-        terrainRow.push('sea');
-      } else if (d >= beachThreshold) {
-        terrainRow.push('coast');
-      } else if (d >= grassThreshold) {
-        terrainRow.push('beach');
+    for (let tx = 0; tx < width; tx++) {
+      let kind: TerrainKind;
+      if (tx < seaMargin || tx >= width - seaMargin || ty < seaTop) {
+        kind = 'sea';
+      } else if (ty >= height - beachH) {
+        kind = 'beach';
+      } else if (ty === cliffRow) {
+        kind = tx === stairsCol ? 'stairs' : 'cliff';
       } else {
-        terrainRow.push('grass');
+        kind = 'grass';
       }
+      terrainRow.push(kind);
     }
     world.terrain.push(terrainRow);
-  }
-
-  // Connectivity: grow beach tiles randomly, then keep only the largest
-  // connected component. Each growth pass picks random beach tiles and
-  // converts one random adjacent tile to beach. Do 1–2 passes. Then prune
-  // everything not connected to the main component.
-  (() => {
-    const neighbors: Array<[number, number]> = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-    const growthPasses = 1 + Math.floor(rand() * 2); // 1 or 2
-    for (let pass = 0; pass < growthPasses; pass++) {
-      const beachTiles: Array<[number, number]> = [];
-      for (let ty = 0; ty < world.height; ty++) {
-        for (let tx = 0; tx < world.width; tx++) {
-          if (world.terrain[ty][tx] === 'beach') beachTiles.push([tx, ty]);
-        }
-      }
-      // Shuffle so each pass picks a random subset.
-      for (let i = beachTiles.length - 1; i > 0; i--) {
-        const j = Math.floor(rand() * (i + 1));
-        [beachTiles[i], beachTiles[j]] = [beachTiles[j], beachTiles[i]];
-      }
-      // Grow each beach tile by converting one random neighbor to beach.
-      for (const [tx, ty] of beachTiles) {
-        const shuffled = shuffleWith(neighbors.slice(), rand);
-        for (const [dx, dy] of shuffled) {
-          const nx = tx + dx;
-          const ny = ty + dy;
-          if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
-          if (world.terrain[ny][nx] !== 'beach') {
-            world.terrain[ny][nx] = 'beach';
-            break; // one expansion per tile per pass
-          }
-        }
-      }
-    }
-    // Prune: keep only the largest connected beach component.
-    const visited = new Set<string>();
-    const queue: Array<[number, number]> = [];
-    // Seed from any beach tile.
-    for (let ty = 0; ty < world.height; ty++) {
-      for (let tx = 0; tx < world.width; tx++) {
-        if (world.terrain[ty][tx] === 'beach') {
-          queue.push([tx, ty]);
-          visited.add(`${tx},${ty}`);
-          break;
-        }
-      }
-      if (queue.length > 0) break;
-    }
-    if (queue.length === 0) return;
-    const mainComponent = new Set<string>();
-    while (queue.length > 0) {
-      const [cx, cy] = queue.shift()!;
-      mainComponent.add(`${cx},${cy}`);
-      for (const [dx, dy] of neighbors) {
-        const key = `${cx + dx},${cy + dy}`;
-        if (visited.has(key)) continue;
-        if (cx + dx < 0 || cy + dy < 0 || cx + dx >= world.width || cy + dy >= world.height) continue;
-        if (world.terrain[cy + dy][cx + dx] !== 'beach') continue;
-        visited.add(key);
-        queue.push([cx + dx, cy + dy]);
-      }
-    }
-    // Promote non-main-component beach tiles to grass.
-    for (let ty = 0; ty < world.height; ty++) {
-      for (let tx = 0; tx < world.width; tx++) {
-        if (world.terrain[ty][tx] === 'beach' && !mainComponent.has(`${tx},${ty}`)) {
-          world.terrain[ty][tx] = 'grass';
-        }
-      }
-    }
-  })();
-
-  fillInlandLakes(world);
-}
-
-// Every water tile (sea/coast) must connect to the map border through water.
-// Beach growth can leave a water pocket enclosed by land (an inland lake);
-// flood-fill water from the border and fill any unreached water with grass.
-function fillInlandLakes(world: World): void {
-  const isWater = (tx: number, ty: number): boolean => {
-    const k = terrainAt(world, tx, ty);
-    return k === 'sea' || k === 'coast';
-  };
-  const open: Array<[number, number]> = [];
-  const seen = new Set<string>();
-  for (let tx = 0; tx < world.width; tx++) {
-    for (const ty of [0, world.height - 1]) {
-      if (isWater(tx, ty)) {
-        open.push([tx, ty]);
-        seen.add(`${tx},${ty}`);
-      }
-    }
-  }
-  for (let ty = 0; ty < world.height; ty++) {
-    for (const tx of [0, world.width - 1]) {
-      const key = `${tx},${ty}`;
-      if (isWater(tx, ty) && !seen.has(key)) {
-        open.push([tx, ty]);
-        seen.add(key);
-      }
-    }
-  }
-  while (open.length > 0) {
-    const [cx, cy] = open.pop()!;
-    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
-      const nx = cx + dx;
-      const ny = cy + dy;
-      if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
-      if (!isWater(nx, ny)) continue;
-      const key = `${nx},${ny}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      open.push([nx, ny]);
-    }
-  }
-  for (let ty = 0; ty < world.height; ty++) {
-    for (let tx = 0; tx < world.width; tx++) {
-      if (isWater(tx, ty) && !seen.has(`${tx},${ty}`)) {
-        world.terrain[ty][tx] = 'grass';
-      }
-    }
   }
 }
 
@@ -459,9 +286,9 @@ export function hashString(str: string): number {
 
 export function canOccupyAt(world: World, px: number, py: number): boolean {
   if (!inBounds(charRect(px, py), world.width, world.height)) return false;
-  // Cannot stand in the water (deep sea or foamy coast).
+  // Cannot stand in the water (deep sea or foamy coast) or on a cliff face.
   for (const kind of standingTileKinds(world, px, py)) {
-    if (kind === 'sea' || kind === 'coast') return false;
+    if (kind === 'sea' || kind === 'coast' || kind === 'cliff') return false;
   }
   const body = bodyRect(px, py);
   for (const t of world.trees) {
@@ -508,7 +335,7 @@ function placeWaterRocks(world: World, rand: () => number): void {
   const candidates: Array<[number, number]> = [];
   for (let ty = 0; ty < world.height; ty++) {
     for (let tx = 0; tx < world.width; tx++) {
-      if (tx < 2 || tx >= world.width - 2 || ty < 2 || ty >= world.height - 2) continue;
+      if (tx < 1 || tx >= world.width - 1 || ty < 1 || ty >= world.height - 1) continue;
       if (world.terrain[ty][tx] === 'sea' || world.terrain[ty][tx] === 'coast') {
         candidates.push([tx, ty]);
       }
@@ -544,7 +371,8 @@ function placeDeco(world: World, rand: () => number): void {
       if (grass.length === 0) continue;
       for (let attempt = 0; attempt < 6; attempt++) {
         const [tx, ty] = grass[Math.floor(rand() * grass.length)];
-        const d: Deco = { x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) };        const r = decoContent(d);
+        const d: Deco = { x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) };
+        const r = decoContent(d);
         if (!inBounds(r, world.width, world.height)) continue;
         if (contentOverlaps(world, r)) continue;
         if (!rectOnGrass(world, r)) continue;
@@ -587,33 +415,21 @@ function reachableAt(world: World, sx: number, sy: number): number {
 
 export function generateWorld(seed: number, width = 16, height = 16): World {
   const rand = createRng(seed);
-  const world: World = { width, height, terrain: [], trees: [], buildings: [], deco: [], waterRocks: [], player: { x: 0, y: 0, facing: 'down' } };
-  buildIsland(world, rand);
+  const world: World = {
+    width,
+    height,
+    terrain: [],
+    trees: [],
+    buildings: [],
+    deco: [],
+    waterRocks: [],
+    player: { x: 0, y: 0, facing: 'down' },
+  };
+  buildTerraced(world);
 
-  // Landmarks sit on a lattice so they line up nicely on the grid.
-  const treeSlots = shuffleWith(
-    (() => {
-      const slots: Array<[number, number]> = [];
-      for (let ty = 2; ty + 2 < height; ty += 3) {
-        for (let tx = 2; tx + 1 < width; tx += 3) {
-          slots.push([tx, ty]);
-        }
-      }
-      return slots;
-    })(),
-    rand,
-  );
-
-  const numTrees = 5 + Math.floor(rand() * 4);
-  for (const [tx, ty] of treeSlots) {
-    if (world.trees.length >= numTrees) break;
-    const r = treeContent({ x: tx, y: ty });
-    if (!inBounds(r, width, height)) continue;
-    if (contentOverlaps(world, r)) continue;
-    if (!rectOnGrass(world, r)) continue;
-    world.trees.push({ x: tx, y: ty });
-  }
-
+  // Landmarks sit on a lattice so they line up nicely on the grid. Buildings
+  // are placed first: in the terraced layout the buildable grass rows are
+  // scarce, and a building's tall content rect must not be crowded out by trees.
   const numBuildings = 1 + Math.floor(rand() * 2);
   const houseSlots = shuffleWith(
     (() => {
@@ -635,6 +451,29 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     if (contentOverlaps(world, r)) continue;
     if (!rectOnGrass(world, r)) continue;
     world.buildings.push({ x: bx, y: by, type });
+  }
+
+  const treeSlots = shuffleWith(
+    (() => {
+      const slots: Array<[number, number]> = [];
+      for (let ty = 2; ty + 2 < height; ty += 3) {
+        for (let tx = 2; tx + 1 < width; tx += 3) {
+          slots.push([tx, ty]);
+        }
+      }
+      return slots;
+    })(),
+    rand,
+  );
+
+  const numTrees = 5 + Math.floor(rand() * 4);
+  for (const [tx, ty] of treeSlots) {
+    if (world.trees.length >= numTrees) break;
+    const r = treeContent({ x: tx, y: ty });
+    if (!inBounds(r, width, height)) continue;
+    if (contentOverlaps(world, r)) continue;
+    if (!rectOnGrass(world, r)) continue;
+    world.trees.push({ x: tx, y: ty });
   }
 
   // Spawn on the most open connected area.
