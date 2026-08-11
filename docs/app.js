@@ -140279,6 +140279,7 @@ function placeWaterRocks(world, rand) {
   const candidates = [];
   for (let ty = 0; ty < world.height; ty++) {
     for (let tx = 0; tx < world.width; tx++) {
+      if (tx < 2 || tx >= world.width - 2 || ty < 2 || ty >= world.height - 2) continue;
       if (world.terrain[ty][tx] === "sea" || world.terrain[ty][tx] === "coast") {
         candidates.push([tx, ty]);
       }
