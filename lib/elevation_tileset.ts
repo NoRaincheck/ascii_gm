@@ -4,14 +4,18 @@
  * The elevation tileset is a 256×512 px image (4×8 grid of 64×64 tiles = 32 tiles).
  *
  * Layout (row, column) — actual image tile indices:
- *   Row 0: [Grass 0] [Grass 1] [Grass 2] [Wall 0]        ← indices  0,  1,  2,  3
- *   Row 1: [Grass 3] [Grass 4] [Grass 5] [Wall 1]        ← indices  4,  5,  6,  7
- *   Row 2: [Grass 6] [Grass 7] [Grass 8] [Wall 2]        ← indices  8,  9, 10, 11
- *   Row 3: [Grass 9] [Grass 10][Grass 11][Wall 3]        ← indices 12, 13, 14, 15
- *   Row 4: [Beach 0] [Beach 1] [Beach 2] [Wall 4]        ← indices 16, 17, 18, 19
- *   Row 5: [Beach 3] [Beach 4] [Beach 5] [Wall 5]        ← indices 20, 21, 22, 23
+ *   Row 0: [R NW ] [R N ] [R NE ] [R NWE ]              ← indices  0,  1,  2,  3
+ *   Row 1: [R W ]  [R  ]  [R E ]  [R WE ]               ← indices  4,  5,  6,  7
+ *   Row 2: [R WS]  [R S ]  [R SE]  [R WSE ]             ← indices  8,  9, 10, 11
+ *   Row 3: [WALL_L] [WALL_C] [WALL_R] [WALL_S]           ← indices 12, 13, 14, 15
+ *   Row 4: [R NWS] [R NS ] [R NES] [R NWES]             ← indices 16, 17, 18, 19
+ *   Row 5: [Beach 4] [Beach 5] [EMPTY]   [EMPTY]         ← indices 20, 21, 22, 23
  *   Row 6: [EMPTY]   [EMPTY]   [EMPTY]   [EMPTY]         ← indices 24, 25, 26, 27
  *   Row 7: [BotElev 0][BotElev 1][BotElev 2][Stairs]     ← indices 28, 29, 30, 31
+ *
+ * Rock border tiles use cardinal directions to name their border edges:
+ *   N=North(top)  E=East(right)  S=South(bottom)  W=West(left)
+ *   e.g. tile 0 = "R NW" has borders on North and West sides.
  *
  * Rendering order (bottom to top):
  *   1. Water    (depth -10) — background fill
@@ -20,7 +24,7 @@
  *   4. Beach + Grass (depth -7/-6) — flat ground
  *
  * The elevation tiles are only used for the cliff band: the cliff face uses
- * the wall tiles (col 3), and the climb point uses the stairs tile (31).
+ * the wall tiles (row 3), and the climb point uses the stairs tile (31).
  */
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -30,14 +34,41 @@ export const TILE_H = 64;
 export const COLS = 4;
 export const ROWS = 8;
 
-// Wall tiles live in column 3 of rows 0-5
-export const WALL_START_ROW = 0; // tileset row 0
-export const WALL_END_ROW = 5; // tileset row 5
+// Rock border tiles live in rows 0, 1, 2, 4 (indices 0-11, 16-19)
+// Row 0: top-edge variants (N, NW, NE, NWE)
+export const ROCK_NW_TILE     = 0;  // row 0, col 0 — borders North, West
+export const ROCK_N_TILE      = 1;  // row 0, col 1 — border North
+export const ROCK_NE_TILE     = 2;  // row 0, col 2 — borders North, East
+export const ROCK_NWE_TILE    = 3;  // row 0, col 3 — borders North, West, East
+// Row 1: mid-edge variants (W, plain, E, WE)
+export const ROCK_W_TILE      = 4;  // row 1, col 0 — border West
+export const ROCK_TILE        = 5;  // row 1, col 1 — no borders
+export const ROCK_E_TILE      = 6;  // row 1, col 2 — border East
+export const ROCK_WE_TILE     = 7;  // row 1, col 3 — borders West, East
+// Row 2: bottom-edge variants (WS, S, SE, WSE)
+export const ROCK_WS_TILE     = 8;  // row 2, col 0 — borders West, South
+export const ROCK_S_TILE      = 9;  // row 2, col 1 — border South
+export const ROCK_SE_TILE     = 10; // row 2, col 2 — borders South, East
+export const ROCK_WSE_TILE    = 11; // row 2, col 3 — borders West, South, East
+// Row 4: inner-corner / three-side variants (NWS, NS, NES, NWES)
+export const ROCK_NWS_TILE    = 16; // row 4, col 0 — borders North, West, South
+export const ROCK_NS_TILE     = 17; // row 4, col 1 — borders North, South
+export const ROCK_NES_TILE    = 18; // row 4, col 2 — borders North, East, South
+export const ROCK_NWES_TILE   = 19; // row 4, col 3 — borders all four sides
+
+// Wall tiles live in row 3, columns 0-3
+export const WALL_ROW = 3; // tileset row 3
 
 // Row 7 staircases (4 tiles of 64px each): left, center, right, single. The
 // left/center/right tiles share the same repeating stair motif, so they tile
 // seamlessly into a wide staircase: width 2 = left+right, width 3 =
 // left+center+right, width 1 = the single tile.
+export const WALL_LEFT_TILE = 12; // row 3, col 0
+export const WALL_CENTER_TILE = 13; // row 3, col 1
+export const WALL_RIGHT_TILE = 14; // row 3, col 2
+export const WALL_SINGLE_TILE = 15; // row 3, col 3
+export const WALL_TILE = WALL_SINGLE_TILE;
+
 export const STAIRS_LEFT_TILE = 28; // row 7, col 0
 export const STAIRS_CENTER_TILE = 29; // row 7, col 1
 export const STAIRS_RIGHT_TILE = 30; // row 7, col 2
@@ -122,26 +153,109 @@ export function getElevationTile(index: number): TileData | undefined {
 
 // ── Tile index selection ─────────────────────────────────────────────────────
 
-export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'stairs';
+export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'rock' | 'stairs';
+
+/**
+ * Find the wall run that contains column `tx` in a terrain row, and return
+ * the run's start column, end column, and the zero-based column index of `tx`
+ * within that run.
+ *
+ * A wall run is a contiguous sequence of 'cliff' tiles on the same row.
+ *
+ * @param terrainRow — the full terrain row (kinds for each column)
+ * @param tx — column to look up
+ * @returns { start, end, colInRun } or null if no cliff run contains this column
+ */
+export function wallRunInfo(terrainRow: TerrainKind[], tx: number): { start: number; end: number; colInRun: number } | null {
+  if (terrainRow[tx] !== 'cliff') return null;
+  // Walk left from tx to find the run start
+  let start = tx;
+  while (start > 0 && terrainRow[start - 1] === 'cliff') start--;
+  // Walk right to find the run end
+  let end = tx;
+  while (end < terrainRow.length - 1 && terrainRow[end + 1] === 'cliff') end++;
+  return { start, end, colInRun: tx - start };
+}
+
+import type { World } from '../lib/game.ts';
+import { terrainAt, EDGE_N, EDGE_S, EDGE_W, EDGE_E } from '../lib/game.ts';
+
+/**
+ * Compute the rock autotile edge mask for a rock tile.
+ *
+ * A border is drawn on each side where the rock meets a non-rock terrain
+ * (sea, coast, cliff, stairs). The mask bits are EDGE_N/S/W/E.
+ *
+ * @param world — the world containing terrain data
+ * @param tx — column index
+ * @param ty — row index
+ * @returns the edge mask
+ */
+export function rockEdgeMask(world: World, tx: number, ty: number): number {
+  let mask = 0;
+  const neighbors: Array<[number, number, number]> = [
+    [0, -1, EDGE_N],
+    [0, 1, EDGE_S],
+    [-1, 0, EDGE_W],
+    [1, 0, EDGE_E],
+  ];
+  for (const [dx, dy, bit] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    if (n !== 'rock') mask |= bit;
+  }
+  return mask;
+}
+
+/**
+ * Map a rock edge mask to the elevation tileset index.
+ *
+ * Rock tiles live in rows 0, 1, 2, 4 of the elevation tileset:
+ *   row 0 → N variants (indices 0-3)
+ *   row 1 → W/E variants (indices 4-7)
+ *   row 2 → S variants (indices 8-11)
+ *   row 4 → inner-corner variants (indices 16-19)
+ *
+ * @param mask — edge mask with EDGE_N/S/W/E bits
+ * @returns the elevation tile index
+ */
+export function rockTileIndex(mask: number): number {
+  const hasN = (mask & EDGE_N) !== 0;
+  const hasS = (mask & EDGE_S) !== 0;
+  const hasW = (mask & EDGE_W) !== 0;
+  const hasE = (mask & EDGE_E) !== 0;
+  const col = hasW ? (hasE ? 3 : 0) : hasE ? 2 : 1;
+  const row = hasN ? (hasS ? 3 : 0) : hasS ? 2 : 1;
+  // Row 3 in the formula maps to tileset row 4 (wall tiles are row 3)
+  const tileRow = row === 3 ? 4 : row;
+  return tileRow * COLS + col;
+}
 
 /**
  * Select the elevation tile for a given terrain tile.
  *
- * Only the cliff band uses elevation tiles:
- * - 'cliff' tiles render the cliff face (wall column; the variant varies by
- *   the map row so adjacent cliffs don't all look identical)
- * - 'stairs' tiles render the staircase at the climb point
- * All other terrain kinds get no elevation tile (-1); they are flat.
+ * The cliff band uses elevation tiles for the cliff face (wall tiles) and
+ * staircase (stairs tile). The rock plateau uses rock border tiles for
+ * autotiling. All other terrain kinds (sea, coast, beach, grass) get no
+ * elevation tile (-1); they are flat.
  *
  * @param kind — terrain type
- * @param ty — row index (0 = top of map), picks the wall variant
- * @param tx — column index (currently unused, kept for symmetry)
+ * @param terrainRow — the full terrain row for this y position
+ * @param tx — column index within the row
  * @returns the elevation tile index, or -1 if no elevation tile should be shown
  */
-export function elevationTileIndex(kind: TerrainKind, ty: number, tx: number): number {
+export function elevationTileIndex(kind: TerrainKind, terrainRow: TerrainKind[], tx: number): number {
   switch (kind) {
-    case 'cliff':
-      return wallTileIndex(ty % (WALL_END_ROW + 1));
+    case 'cliff': {
+      const info = wallRunInfo(terrainRow, tx);
+      if (!info) return -1;
+      return wallTileIndex(info.end - info.start + 1, info.colInRun);
+    }
+    case 'rock': {
+      // Rock tiles need the full world for neighbor lookups; terrainRow alone
+      // is insufficient because rock may border non-rock on any side.
+      // We handle this in the caller which has access to the world.
+      return -1; // placeholder — caller must use rockTileIndex + rockEdgeMask
+    }
     case 'stairs':
       return stairsTileIndex();
     default:
@@ -150,14 +264,37 @@ export function elevationTileIndex(kind: TerrainKind, ty: number, tx: number): n
 }
 
 /**
- * Get the wall tile index for a given tileset row.
- * Wall tiles are in column 3 of rows 0-5.
- * @param tsRow — tileset row (0-5)
- * @returns the wall tile index, or -1 if no wall tile exists for this row
+ * Select the elevation tile for a rock terrain tile, using the world to
+ * inspect neighbors for autotiling.
+ *
+ * @param world — the world containing terrain data
+ * @param tx — column index
+ * @param ty — row index
+ * @returns the elevation tile index for this rock tile
  */
-export function wallTileIndex(tsRow: number): number {
-  if (tsRow < WALL_START_ROW || tsRow > WALL_END_ROW) return -1;
-  return tileIndex(tsRow, 3);
+export function rockElevationTile(world: World, tx: number, ty: number): number {
+  const mask = rockEdgeMask(world, tx, ty);
+  return rockTileIndex(mask);
+}
+
+/**
+ * Get the wall tile variant for a given column position within a wall run.
+ * Wall tiles are in row 3: left(0), center(1), right(2), single(3).
+ *
+ * For runs of width 1: single.
+ * For runs of width 2: left, right.
+ * For runs of width 3: left, center, right.
+ * For runs of width ≥4: left, center*, right — center tiles fill the middle.
+ *
+ * @param runWidth — total width of the wall run
+ * @param colInRun — column within the wall run, 0-based from the run's left edge
+ * @returns the wall tile index
+ */
+export function wallTileIndex(runWidth: number, colInRun: number): number {
+  if (runWidth <= 1) return WALL_SINGLE_TILE;
+  if (colInRun <= 0) return WALL_LEFT_TILE;
+  if (colInRun >= runWidth - 1) return WALL_RIGHT_TILE;
+  return WALL_CENTER_TILE;
 }
 
 /**

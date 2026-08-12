@@ -37,6 +37,7 @@ export {
   isElevationLoaded,
   parseElevationTileset,
   stairsTileIndex,
+  wallRunInfo,
   wallTileIndex,
 } from './elevation_tileset.ts';
 export type { TerrainKind } from './elevation_tileset.ts';

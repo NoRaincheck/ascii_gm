@@ -13,6 +13,11 @@ import {
   TILE_H,
   TILE_W,
   wallTileIndex,
+  wallRunInfo,
+  WALL_LEFT_TILE,
+  WALL_CENTER_TILE,
+  WALL_RIGHT_TILE,
+  WALL_SINGLE_TILE,
 } from '../lib/elevation_tileset.ts';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -27,52 +32,95 @@ Deno.test('elevation tileset constants', () => {
 // ── Flat kinds get no elevation tile ─────────────────────────────────────────
 
 Deno.test('elevationTileIndex — flat terrain kinds get no elevation tile', () => {
-  for (const kind of ['sea', 'coast', 'beach', 'grass'] as TerrainKind[]) {
-    for (let ty = 0; ty < 16; ty++) {
-      for (let tx = 0; tx < 16; tx++) {
-        assertEquals(
-          elevationTileIndex(kind, ty, tx),
-          -1,
-          `${kind} at (${tx},${ty}) should have no elevation tile`,
-        );
-      }
+  const row: TerrainKind[] = ['sea', 'coast', 'beach', 'grass', 'rock'];
+  for (const kind of row) {
+    for (let tx = 0; tx < 16; tx++) {
+      assertEquals(
+        elevationTileIndex(kind, row, tx),
+        -1,
+        `${kind} at col ${tx} should have no elevation tile`,
+      );
     }
   }
 });
 
-// ── Cliff band ───────────────────────────────────────────────────────────────
+// ── Cliff band — position-aware wall tiling ──────────────────────────────────
 
-Deno.test('elevationTileIndex — cliff uses the wall column', () => {
-  for (let ty = 0; ty < 16; ty++) {
-    const idx = elevationTileIndex('cliff', ty, 3);
-    const expected = wallTileIndex(ty % 6);
-    assertEquals(idx, expected, `cliff at row ${ty}: expected ${expected}, got ${idx}`);
-    // Wall tiles are in column 3 of the sheet.
-    assert(idx % COLS === 3, `cliff at row ${ty}: index ${idx} should be in column 3`);
-  }
+Deno.test('elevationTileIndex — cliff uses position-aware wall tiles', () => {
+  // A cliff run spanning columns 2–5: cliff cliff cliff cliff
+  const row: TerrainKind[] = new Array(8).fill('grass');
+  row[2] = 'cliff';
+  row[3] = 'cliff';
+  row[4] = 'cliff';
+  row[5] = 'cliff';
+
+  assertEquals(elevationTileIndex('cliff', row, 2), WALL_LEFT_TILE);   // left edge
+  assertEquals(elevationTileIndex('cliff', row, 3), WALL_CENTER_TILE); // center
+  assertEquals(elevationTileIndex('cliff', row, 4), WALL_CENTER_TILE); // center
+  assertEquals(elevationTileIndex('cliff', row, 5), WALL_RIGHT_TILE);  // right edge
 });
+
+Deno.test('elevationTileIndex — single cliff tile uses single variant', () => {
+  const row: TerrainKind[] = ['grass', 'cliff', 'grass'];
+  assertEquals(elevationTileIndex('cliff', row, 1), WALL_SINGLE_TILE);
+});
+
+// ── Wall run info ────────────────────────────────────────────────────────────
+
+Deno.test('wallRunInfo — finds correct run boundaries', () => {
+  const row: TerrainKind[] = ['grass', 'cliff', 'cliff', 'cliff', 'grass'];
+  assertEquals(wallRunInfo(row, 0), null); // not a cliff
+  assertEquals(wallRunInfo(row, 1), { start: 1, end: 3, colInRun: 0 });
+  assertEquals(wallRunInfo(row, 2), { start: 1, end: 3, colInRun: 1 });
+  assertEquals(wallRunInfo(row, 3), { start: 1, end: 3, colInRun: 2 });
+  assertEquals(wallRunInfo(row, 4), null); // not a cliff
+});
+
+Deno.test('wallRunInfo — works with cliff at map edges', () => {
+  const row: TerrainKind[] = ['cliff', 'cliff', 'grass'];
+  assertEquals(wallRunInfo(row, 0), { start: 0, end: 1, colInRun: 0 });
+  assertEquals(wallRunInfo(row, 1), { start: 0, end: 1, colInRun: 1 });
+});
+
+// ── Wall tile index ──────────────────────────────────────────────────────────
+
+Deno.test('wallTileIndex — width 1 is always single', () => {
+  assertEquals(wallTileIndex(1, 0), WALL_SINGLE_TILE);
+});
+
+Deno.test('wallTileIndex — width 2 is left, right', () => {
+  assertEquals(wallTileIndex(2, 0), WALL_LEFT_TILE);
+  assertEquals(wallTileIndex(2, 1), WALL_RIGHT_TILE);
+});
+
+Deno.test('wallTileIndex — width 3 is left, center, right', () => {
+  assertEquals(wallTileIndex(3, 0), WALL_LEFT_TILE);
+  assertEquals(wallTileIndex(3, 1), WALL_CENTER_TILE);
+  assertEquals(wallTileIndex(3, 2), WALL_RIGHT_TILE);
+});
+
+Deno.test('wallTileIndex — width 4+ is left, center*, right', () => {
+  assertEquals(wallTileIndex(4, 0), WALL_LEFT_TILE);
+  assertEquals(wallTileIndex(4, 1), WALL_CENTER_TILE);
+  assertEquals(wallTileIndex(4, 2), WALL_CENTER_TILE);
+  assertEquals(wallTileIndex(4, 3), WALL_RIGHT_TILE);
+});
+
+Deno.test('wallTileIndex — width 5 is left, center*, right', () => {
+  assertEquals(wallTileIndex(5, 0), WALL_LEFT_TILE);
+  assertEquals(wallTileIndex(5, 1), WALL_CENTER_TILE);
+  assertEquals(wallTileIndex(5, 2), WALL_CENTER_TILE);
+  assertEquals(wallTileIndex(5, 3), WALL_CENTER_TILE);
+  assertEquals(wallTileIndex(5, 4), WALL_RIGHT_TILE);
+});
+
+// ── Stairs ───────────────────────────────────────────────────────────────────
 
 Deno.test('elevationTileIndex — stairs uses the stairs tile', () => {
-  for (let ty = 0; ty < 16; ty++) {
-    for (let tx = 0; tx < 16; tx++) {
-      assertEquals(elevationTileIndex('stairs', ty, tx), 31);
-    }
+  const row: TerrainKind[] = new Array(16).fill('stairs');
+  for (let tx = 0; tx < 16; tx++) {
+    assertEquals(elevationTileIndex('stairs', row, tx), 31);
   }
-});
-
-// ── Wall and stairs helpers ──────────────────────────────────────────────────
-
-Deno.test('wallTileIndex — walls are col 3 of rows 0-5', () => {
-  const expected = [3, 7, 11, 15, 19, 23];
-  for (let tsRow = 0; tsRow < 6; tsRow++) {
-    assertEquals(wallTileIndex(tsRow), expected[tsRow], `wall row ${tsRow}`);
-  }
-});
-
-Deno.test('wallTileIndex — returns -1 outside rows 0-5', () => {
-  assertEquals(wallTileIndex(6), -1);
-  assertEquals(wallTileIndex(7), -1);
-  assertEquals(wallTileIndex(-1), -1);
 });
 
 Deno.test('stairsTileIndex — stairs are the last tile', () => {

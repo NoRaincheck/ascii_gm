@@ -128605,11 +128605,11 @@ var require_phaser = __commonJS({
                    *
                    * @return {?(object|undefined)}
                    */
-                  getTileProperties: function(tileIndex2) {
-                    if (!this.containsTileIndex(tileIndex2)) {
+                  getTileProperties: function(tileIndex) {
+                    if (!this.containsTileIndex(tileIndex)) {
                       return null;
                     }
-                    return this.tileProperties[tileIndex2 - this.firstgid];
+                    return this.tileProperties[tileIndex - this.firstgid];
                   },
                   /**
                    * Get a tile's data that is stored in the Tileset. Returns null if tile index is not contained
@@ -128623,11 +128623,11 @@ var require_phaser = __commonJS({
                    *
                    * @return {?object|undefined}
                    */
-                  getTileData: function(tileIndex2) {
-                    if (!this.containsTileIndex(tileIndex2)) {
+                  getTileData: function(tileIndex) {
+                    if (!this.containsTileIndex(tileIndex)) {
                       return null;
                     }
-                    return this.tileData[tileIndex2 - this.firstgid];
+                    return this.tileData[tileIndex - this.firstgid];
                   },
                   /**
                    * Get a tile's collision group that is stored in the Tileset. Returns null if tile index is not
@@ -128640,8 +128640,8 @@ var require_phaser = __commonJS({
                    *
                    * @return {?object}
                    */
-                  getTileCollisionGroup: function(tileIndex2) {
-                    var data = this.getTileData(tileIndex2);
+                  getTileCollisionGroup: function(tileIndex) {
+                    var data = this.getTileData(tileIndex);
                     return data && data.objectgroup ? data.objectgroup : null;
                   },
                   /**
@@ -128654,8 +128654,8 @@ var require_phaser = __commonJS({
                    *
                    * @return {boolean}
                    */
-                  containsTileIndex: function(tileIndex2) {
-                    return tileIndex2 >= this.firstgid && tileIndex2 < this.firstgid + this.total;
+                  containsTileIndex: function(tileIndex) {
+                    return tileIndex >= this.firstgid && tileIndex < this.firstgid + this.total;
                   },
                   /**
                    * Returns the texture coordinates (UV in pixels) in the Tileset image for the given tile index.
@@ -128669,11 +128669,11 @@ var require_phaser = __commonJS({
                    * @return {?object} Object in the form { x, y } representing the top-left UV coordinate
                    * within the Tileset image.
                    */
-                  getTileTextureCoordinates: function(tileIndex2) {
-                    if (!this.containsTileIndex(tileIndex2)) {
+                  getTileTextureCoordinates: function(tileIndex) {
+                    if (!this.containsTileIndex(tileIndex)) {
                       return null;
                     }
-                    return this.texCoordinates[tileIndex2 - this.firstgid];
+                    return this.texCoordinates[tileIndex - this.firstgid];
                   },
                   /**
                    * Sets the image associated with this Tileset and updates the tile data (rows, columns, etc.).
@@ -130475,10 +130475,10 @@ var require_phaser = __commonJS({
             9589: (
               /***/
               (module2) => {
-                var SetLayerCollisionIndex = function(tileIndex2, collides, layer) {
-                  var loc = layer.collideIndexes.indexOf(tileIndex2);
+                var SetLayerCollisionIndex = function(tileIndex, collides, layer) {
+                  var loc = layer.collideIndexes.indexOf(tileIndex);
                   if (collides && loc === -1) {
-                    layer.collideIndexes.push(tileIndex2);
+                    layer.collideIndexes.push(tileIndex);
                   } else if (!collides && loc !== -1) {
                     layer.collideIndexes.splice(loc, 1);
                   }
@@ -131228,11 +131228,11 @@ var require_phaser = __commonJS({
                     tiles[y] = [];
                     var row = data[y];
                     for (var x = 0; x < row.length; x++) {
-                      var tileIndex2 = parseInt(row[x], 10);
-                      if (isNaN(tileIndex2) || tileIndex2 === -1) {
+                      var tileIndex = parseInt(row[x], 10);
+                      if (isNaN(tileIndex) || tileIndex === -1) {
                         tiles[y][x] = insertNull ? null : new Tile(layerData, -1, x, y, tileWidth, tileHeight);
                       } else {
-                        tiles[y][x] = new Tile(layerData, tileIndex2, x, y, tileWidth, tileHeight);
+                        tiles[y][x] = new Tile(layerData, tileIndex, x, y, tileWidth, tileHeight);
                       }
                     }
                     if (width === 0) {
@@ -140014,7 +140014,7 @@ var EDGE_W = 4;
 var EDGE_E = 8;
 function landTouchesWater(world, tx, ty) {
   const kind = terrainAt(world, tx, ty);
-  if (kind !== "beach" && kind !== "grass") return false;
+  if (kind !== "beach" && kind !== "grass" && kind !== "rock") return false;
   const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
   for (const [dx, dy] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
@@ -140032,7 +140032,10 @@ function flatEdgeMask(world, tx, ty, kind) {
   ];
   for (const [dx, dy, bit] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
-    const border = kind === "grass" ? n !== "grass" : n === "coast" || n === "sea";
+    const border = kind === "grass" ? n !== "grass" : kind === "beach" ? n === "coast" || n === "sea" : (
+      /* rock */
+      n === "sea"
+    );
     if (border) mask |= bit;
   }
   return mask;
@@ -140051,40 +140054,53 @@ function buildTerraced(world, rand) {
   const { width, height } = world;
   const seaMargin = 2;
   const seaTop = 2;
-  const beachH = 2;
-  const lowerGrassH = 2;
-  const cliffRow = Math.max(seaTop, height - beachH - lowerGrassH - 1);
+  const beachH = 3;
+  const midGrassH = 8;
+  const rockH = 2;
   const minGap = 10;
   const maxStairs = 3;
   const interiorStart = seaMargin;
   const interiorEnd = width - seaMargin - 1;
+  const lowerCliffRow = Math.max(seaTop, height - beachH - 1);
+  const upperCliffRow = lowerCliffRow - midGrassH - 1;
+  const rockRows = upperCliffRow - seaTop;
   const touchesWater = (start, width2) => start === interiorStart || start + width2 - 1 === interiorEnd;
   const stairs = [];
-  const fits = (start, width2) => {
+  const bandStairs = (row) => stairs.filter((s) => s.row === row);
+  const fits = (row, start, width2) => {
     if (start < interiorStart || start + width2 - 1 > interiorEnd) return false;
-    for (const r of stairs) {
+    for (const r of bandStairs(row)) {
       const gapBelow = start - (r.start + r.width - 1);
       const gapAbove = r.start - (start + width2 - 1);
       if (Math.max(gapAbove, gapBelow) < minGap) return false;
     }
     return true;
   };
-  for (let i = 0; i < maxStairs; i++) {
+  const placeBand = (row) => {
     let placed = false;
     for (const preferDry of [true, false]) {
       if (placed) break;
-      for (let attempt = 0; attempt < 40 && !placed; attempt++) {
-        const width2 = 1 + Math.floor(rand() * 3);
-        const start = interiorStart + Math.floor(rand() * (interiorEnd - interiorStart + 1));
-        if (!fits(start, width2)) continue;
-        if (preferDry && touchesWater(start, width2)) continue;
-        stairs.push({ start, width: width2 });
-        placed = true;
+      for (let i = 0; i < maxStairs && !placed; i++) {
+        for (let attempt = 0; attempt < 40 && !placed; attempt++) {
+          const width2 = 1 + Math.floor(rand() * 3);
+          const start = interiorStart + Math.floor(rand() * (interiorEnd - interiorStart + 1));
+          if (!fits(row, start, width2)) continue;
+          if (preferDry && touchesWater(start, width2)) continue;
+          stairs.push({ start, width: width2, row });
+          placed = true;
+        }
       }
     }
-    if (!placed) break;
+    return placed;
+  };
+  placeBand(lowerCliffRow);
+  placeBand(upperCliffRow);
+  if (bandStairs(lowerCliffRow).length === 0) {
+    stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1, row: lowerCliffRow });
   }
-  if (stairs.length === 0) stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1 });
+  if (bandStairs(upperCliffRow).length === 0) {
+    stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1, row: upperCliffRow });
+  }
   world.stairs = stairs;
   world.terrain = [];
   for (let ty = 0; ty < height; ty++) {
@@ -140095,16 +140111,21 @@ function buildTerraced(world, rand) {
         kind = "sea";
       } else if (ty >= height - beachH) {
         kind = "beach";
-      } else if (ty === cliffRow) {
-        const isStairs = stairs.some((s) => tx >= s.start && tx < s.start + s.width);
+      } else if (ty === lowerCliffRow || ty === upperCliffRow) {
+        const isStairs = bandStairs(ty).some((s) => tx >= s.start && tx < s.start + s.width);
         kind = isStairs ? "stairs" : "cliff";
-      } else {
+      } else if (ty > lowerCliffRow) {
+        kind = "beach";
+      } else if (ty > upperCliffRow) {
         kind = "grass";
+      } else {
+        kind = "rock";
       }
       terrainRow.push(kind);
     }
     world.terrain.push(terrainRow);
   }
+  world.level = 2;
 }
 function standingTileKinds(world, px, py) {
   const tiles = [];
@@ -140158,6 +140179,32 @@ function rectOnGrass(world, r) {
   }
   return true;
 }
+function rectOnBuildingSite(world, r) {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const kind = terrainAt(world, tx, ty);
+      if (kind !== "grass" && kind !== "rock") return false;
+    }
+  }
+  return true;
+}
+function rectOnWalkable(world, r) {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const kind = terrainAt(world, tx, ty);
+      if (kind !== "grass" && kind !== "beach" && kind !== "rock") return false;
+    }
+  }
+  return true;
+}
 function placeWaterRocks(world, rand) {
   const spacing = 4;
   world.waterRocks = [];
@@ -140206,7 +140253,7 @@ function placeDeco(world, rand) {
     }
   }
 }
-var CELL = 32;
+var CELL = 16;
 function reachableAt(world, sx, sy) {
   const cols = Math.floor(world.width * TILE / CELL);
   const rows = Math.floor(world.height * TILE / CELL);
@@ -140244,29 +140291,30 @@ function generateWorld(seed, width = 16, height = 16) {
     deco: [],
     waterRocks: [],
     stairs: [],
-    player: { x: 0, y: 0, facing: "down" }
+    player: { x: 0, y: 0, facing: "down" },
+    level: 0
   };
   buildTerraced(world, rand);
   const numBuildings = 1 + Math.floor(rand() * 2);
-  const houseSlots = shuffleWith(
-    (() => {
-      const slots = [];
-      for (let by = 2; by + 2 < height; by += 3) {
-        for (let bx = 2; bx + 2 < width; bx += 3) {
-          slots.push([bx, by]);
-        }
+  const buildingSlotsFor = (kind) => {
+    const slots = [];
+    for (let by = 2; by + 2 < height; by += 3) {
+      for (let bx = 2; bx + 2 < width; bx += 3) {
+        if (world.terrain[by][bx] === kind) slots.push([bx, by]);
       }
-      return slots;
-    })(),
-    rand
-  );
-  for (const [bx, by] of houseSlots) {
+    }
+    return slots;
+  };
+  const rockBuildingSlots = shuffleWith(buildingSlotsFor("rock"), rand);
+  const grassBuildingSlots = shuffleWith(buildingSlotsFor("grass"), rand);
+  const allSlots = [...rockBuildingSlots, ...grassBuildingSlots];
+  for (const [bx, by] of allSlots) {
     if (world.buildings.length >= numBuildings) break;
     const type = BUILDING_TYPES[Math.floor(rand() * BUILDING_TYPES.length)];
     const r = buildingContent({ x: bx, y: by, type });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
-    if (!rectOnGrass(world, r)) continue;
+    if (!rectOnBuildingSite(world, r)) continue;
     world.buildings.push({ x: bx, y: by, type });
   }
   const treeSlots = shuffleWith(
@@ -140290,6 +140338,29 @@ function generateWorld(seed, width = 16, height = 16) {
     if (!rectOnGrass(world, r)) continue;
     world.trees.push({ x: tx, y: ty });
   }
+  const rockSlots = shuffleWith(
+    (() => {
+      const slots = [];
+      for (let ty = 0; ty < height; ty += 2) {
+        for (let tx = 0; tx < width; tx += 2) {
+          if (world.terrain[ty][tx] === "rock") slots.push([tx, ty]);
+        }
+      }
+      return slots;
+    })(),
+    rand
+  );
+  const numRockDeco = 3 + Math.floor(rand() * 4);
+  for (const [tx, ty] of rockSlots) {
+    if (world.deco.length >= numTrees + numRockDeco) break;
+    const r = decoContent({ x: tx, y: ty, variant: 1 });
+    if (!inBounds(r, width, height)) continue;
+    if (contentOverlaps(world, r)) continue;
+    if (!rectOnWalkable(world, r)) continue;
+    if (world.deco.some((o) => Math.max(Math.abs(o.x - tx), Math.abs(o.y - ty)) < 3)) continue;
+    world.deco.push({ x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) });
+  }
+  const totalCells = Math.floor(width * TILE / CELL) * Math.floor(height * TILE / CELL);
   let bestScore = -1;
   let best = { x: TILE, y: TILE, facing: "down" };
   for (let attempt = 0; attempt < 400; attempt++) {
@@ -140300,10 +140371,85 @@ function generateWorld(seed, width = 16, height = 16) {
     if (score > bestScore) {
       bestScore = score;
       best = { x: px, y: py, facing: "down" };
-      if (score > 700) break;
+      if (score > totalCells * 0.65) break;
     }
   }
   world.player = best;
+  const STAIR_CLEAR_COLS = 3;
+  const STAIR_CLEAR_ROWS = 2;
+  const blocksStairEntry = (tx, ty, stair) => {
+    const { start, width: width2, row } = stair;
+    const rowDiff = Math.abs(ty - row);
+    if (rowDiff > STAIR_CLEAR_ROWS) return false;
+    const margin = STAIR_CLEAR_COLS;
+    if (tx < start - margin || tx > start + width2 - 1 + margin) return false;
+    return true;
+  };
+  world.trees = world.trees.filter((t) => {
+    if (!blocksStairEntry(t.x, t.y, world.stairs[0])) return true;
+    for (const stair of world.stairs) {
+      if (blocksStairEntry(t.x, t.y, stair)) return false;
+    }
+    return true;
+  });
+  world.buildings = world.buildings.filter((b) => {
+    for (const stair of world.stairs) {
+      if (blocksStairEntry(b.x, b.y, stair)) return false;
+    }
+    return true;
+  });
+  const ensureStairReachability = () => {
+    const cols = Math.floor(world.width * TILE / CELL);
+    const rows = Math.floor(world.height * TILE / CELL);
+    const isWalkable = (cx, cy) => {
+      if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return false;
+      const kind = terrainAt(world, cx, cy);
+      return kind === "grass" || kind === "beach" || kind === "rock" || kind === "stairs";
+    };
+    for (const stair of world.stairs) {
+      const { start, width: width2, row } = stair;
+      const midCol = start + Math.floor(width2 / 2);
+      let aboveClear = false;
+      for (let dr = 1; dr <= 3; dr++) {
+        const ry = row - dr;
+        if (ry < 0) break;
+        if (isWalkable(midCol, ry)) {
+          aboveClear = true;
+          break;
+        }
+      }
+      let belowClear = false;
+      for (let dr = 1; dr <= 3; dr++) {
+        const ry = row + dr;
+        if (ry >= world.height) break;
+        if (isWalkable(midCol, ry)) {
+          belowClear = true;
+          break;
+        }
+      }
+      if (!aboveClear || !belowClear) {
+        const newTrees = [];
+        for (const t of world.trees) {
+          const blocked = blocksStairEntry(t.x, t.y, stair);
+          if (blocked) continue;
+          newTrees.push(t);
+        }
+        const newBuildings = [];
+        for (const b of world.buildings) {
+          const blocked = blocksStairEntry(b.x, b.y, stair);
+          if (blocked) continue;
+          newBuildings.push(b);
+        }
+        if (newTrees.length < world.trees.length || newBuildings.length < world.buildings.length) {
+          world.trees = newTrees;
+          world.buildings = newBuildings;
+          ensureStairReachability();
+          return;
+        }
+      }
+    }
+  };
+  ensureStairReachability();
   const reach = /* @__PURE__ */ new Set();
   (() => {
     const cols = Math.floor(world.width * TILE / CELL);
@@ -140326,11 +140472,12 @@ function generateWorld(seed, width = 16, height = 16) {
       }
     }
   })();
-  const baseReachable = (px, py) => {
-    const cx = Math.floor(px / CELL);
-    const cy = Math.floor(py / CELL);
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
+  const baseReachable = (rect) => {
+    const cx = Math.floor(rect.x / CELL) + Math.floor(rect.w / CELL / 2);
+    const cy = Math.floor((rect.y + rect.h) / CELL);
+    const radiusX = Math.max(2, Math.ceil(rect.w / CELL));
+    for (let dy = -2; dy <= Math.ceil(rect.h / CELL); dy++) {
+      for (let dx = -radiusX; dx <= radiusX; dx++) {
         if (reach.has(`${cx + dx},${cy + dy}`)) return true;
       }
     }
@@ -140338,11 +140485,22 @@ function generateWorld(seed, width = 16, height = 16) {
   };
   world.trees = world.trees.filter((t) => {
     const s = treeSolid(t);
-    return baseReachable(s.x + s.w / 2, s.y + s.h);
+    return baseReachable(s);
   });
   world.buildings = world.buildings.filter((b) => {
     const s = buildingSolid(b);
-    return baseReachable(s.x + s.w / 2, s.y + s.h);
+    return baseReachable(s);
+  });
+  world.deco = world.deco.filter((d) => {
+    const r = decoContent(d);
+    const cx = Math.floor(r.x / CELL) + Math.floor(r.w / CELL / 2);
+    const cy = Math.floor((r.y + r.h) / CELL);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (reach.has(`${cx + dx},${cy + dy}`)) return true;
+      }
+    }
+    return false;
   });
   placeDeco(world, rand);
   placeWaterRocks(world, rand);
@@ -140382,29 +140540,72 @@ function movePlayer(world, dx, dy, step) {
 
 // lib/elevation_tileset.ts
 var COLS = 4;
-var WALL_START_ROW = 0;
-var WALL_END_ROW = 5;
+var WALL_LEFT_TILE = 12;
+var WALL_CENTER_TILE = 13;
+var WALL_RIGHT_TILE = 14;
+var WALL_SINGLE_TILE = 15;
 var STAIRS_LEFT_TILE = 28;
 var STAIRS_CENTER_TILE = 29;
 var STAIRS_RIGHT_TILE = 30;
 var STAIRS_SINGLE_TILE = 31;
 var STAIRS_TILE = STAIRS_SINGLE_TILE;
-function tileIndex(row, col) {
-  return row * COLS + col;
+function wallRunInfo(terrainRow, tx) {
+  if (terrainRow[tx] !== "cliff") return null;
+  let start = tx;
+  while (start > 0 && terrainRow[start - 1] === "cliff") start--;
+  let end = tx;
+  while (end < terrainRow.length - 1 && terrainRow[end + 1] === "cliff") end++;
+  return { start, end, colInRun: tx - start };
 }
-function elevationTileIndex(kind, ty, tx) {
+function rockEdgeMask(world, tx, ty) {
+  let mask = 0;
+  const neighbors = [
+    [0, -1, EDGE_N],
+    [0, 1, EDGE_S],
+    [-1, 0, EDGE_W],
+    [1, 0, EDGE_E]
+  ];
+  for (const [dx, dy, bit] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    if (n !== "rock") mask |= bit;
+  }
+  return mask;
+}
+function rockTileIndex(mask) {
+  const hasN = (mask & EDGE_N) !== 0;
+  const hasS = (mask & EDGE_S) !== 0;
+  const hasW = (mask & EDGE_W) !== 0;
+  const hasE = (mask & EDGE_E) !== 0;
+  const col = hasW ? hasE ? 3 : 0 : hasE ? 2 : 1;
+  const row = hasN ? hasS ? 3 : 0 : hasS ? 2 : 1;
+  const tileRow = row === 3 ? 4 : row;
+  return tileRow * COLS + col;
+}
+function elevationTileIndex(kind, terrainRow, tx) {
   switch (kind) {
-    case "cliff":
-      return wallTileIndex(ty % (WALL_END_ROW + 1));
+    case "cliff": {
+      const info = wallRunInfo(terrainRow, tx);
+      if (!info) return -1;
+      return wallTileIndex(info.end - info.start + 1, info.colInRun);
+    }
+    case "rock": {
+      return -1;
+    }
     case "stairs":
       return stairsTileIndex();
     default:
       return -1;
   }
 }
-function wallTileIndex(tsRow) {
-  if (tsRow < WALL_START_ROW || tsRow > WALL_END_ROW) return -1;
-  return tileIndex(tsRow, 3);
+function rockElevationTile(world, tx, ty) {
+  const mask = rockEdgeMask(world, tx, ty);
+  return rockTileIndex(mask);
+}
+function wallTileIndex(runWidth, colInRun) {
+  if (runWidth <= 1) return WALL_SINGLE_TILE;
+  if (colInRun <= 0) return WALL_LEFT_TILE;
+  if (colInRun >= runWidth - 1) return WALL_RIGHT_TILE;
+  return WALL_CENTER_TILE;
 }
 function stairsTileIndex() {
   return STAIRS_TILE;
@@ -140418,11 +140619,12 @@ function stairsTileVariant(runWidth, colInRun) {
 
 // www/game.ts
 var WATER = 4697001;
-var MAP_SIZE = 16;
+var MAP_W = 16;
+var MAP_H = 20;
 var SPEED = 200;
 var ZOOM = 0.5;
-var WORLD_W = MAP_SIZE * TILE;
-var WORLD_H = MAP_SIZE * TILE;
+var WORLD_W = MAP_W * TILE;
+var WORLD_H = MAP_H * TILE;
 var SPRITE_POS = {
   warrior: { dx: -6, dy: -40 },
   tree: { dx: 64, dy: 32 },
@@ -140458,7 +140660,7 @@ var GameScene = class extends import_phaser.default.Scene {
     }
   }
   create() {
-    this.world = generateWorld(currentSeed, MAP_SIZE, MAP_SIZE);
+    this.world = generateWorld(currentSeed, MAP_W, MAP_H);
     this.cameras.main.setBackgroundColor(WATER);
     this.buildTerrain();
     if (!this.anims.exists("foam")) {
@@ -140531,7 +140733,7 @@ var GameScene = class extends import_phaser.default.Scene {
   // shows the wall tiles (with one stairs tile at the climb point); beach and
   // grass tiles draw the flat ground. Sea/coast get no flat layer.
   buildTerrain() {
-    const map = this.make.tilemap({ width: MAP_SIZE, height: MAP_SIZE, tileWidth: TILE, tileHeight: TILE });
+    const map = this.make.tilemap({ width: MAP_W, height: MAP_H, tileWidth: TILE, tileHeight: TILE });
     const waterTiles = map.addTilesetImage("water", "water");
     const elevationTiles = map.addTilesetImage("elevation", "elevation");
     const flatTiles = map.addTilesetImage("flat", "flat");
@@ -140539,15 +140741,17 @@ var GameScene = class extends import_phaser.default.Scene {
     const elevationLayer = map.createBlankLayer("elevation", elevationTiles).setDepth(-9);
     const beachLayer = map.createBlankLayer("beach", flatTiles).setDepth(-7);
     const grassLayer = map.createBlankLayer("grass", flatTiles).setDepth(-6);
-    for (let ty = 0; ty < MAP_SIZE; ty++) {
-      for (let tx = 0; tx < MAP_SIZE; tx++) {
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
         const kind = this.world.terrain[ty][tx];
         if (kind === "cliff") {
-          elevationLayer.putTileAt(elevationTileIndex(kind, ty, tx), tx, ty);
+          elevationLayer.putTileAt(elevationTileIndex(kind, this.world.terrain[ty], tx), tx, ty);
         } else if (kind === "stairs") {
-          const run = this.world.stairs.find((s) => tx >= s.start && tx < s.start + s.width);
-          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, ty, tx);
+          const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
+          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, this.world.terrain[ty], tx);
           elevationLayer.putTileAt(tile, tx, ty);
+        } else if (kind === "rock") {
+          elevationLayer.putTileAt(rockElevationTile(this.world, tx, ty), tx, ty);
         } else if (kind === "beach" || kind === "grass") {
           const layer = kind === "beach" ? beachLayer : grassLayer;
           layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);
@@ -140565,8 +140769,8 @@ var GameScene = class extends import_phaser.default.Scene {
   // Start frames are staggered per tile to avoid lockstep animation.
   buildFoam() {
     const foamSprites = [];
-    for (let ty = 0; ty < MAP_SIZE; ty++) {
-      for (let tx = 0; tx < MAP_SIZE; tx++) {
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
         if (!landTouchesWater(this.world, tx, ty)) continue;
         const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, "foam");
         sprite.setDepth(-8);
@@ -140575,8 +140779,8 @@ var GameScene = class extends import_phaser.default.Scene {
     }
     const maskGraphics = this.make.graphics({ add: false });
     maskGraphics.fillStyle(16777215);
-    for (let ty = 0; ty < MAP_SIZE; ty++) {
-      for (let tx = 0; tx < MAP_SIZE; tx++) {
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
         const kind = this.world.terrain[ty][tx];
         if (kind === "sea" || kind === "coast") {
           maskGraphics.fillRect(tx * TILE, ty * TILE, TILE, TILE);
