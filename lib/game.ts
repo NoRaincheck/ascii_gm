@@ -656,6 +656,102 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   }
   world.player = best;
 
+  // ── Prune landmarks that block stair entryways ────────────────────────────
+  // For each stair run, ensure the tiles immediately above and below are clear
+  // of solid obstacles (trees/buildings) so the stairs are reachable from both
+  // the upper terrace (rock/grass) and lower terrace (grass/beach).
+  const STAIR_CLEAR_COLS = 3; // columns to keep clear on each side of stair run
+  const STAIR_CLEAR_ROWS = 2; // rows above/below to keep clear
+
+  const blocksStairEntry = (
+    tx: number,
+    ty: number,
+    stair: StairRun,
+  ): boolean => {
+    const { start, width, row } = stair;
+    // Check if this tile is in the "entry zone" of any stair run
+    // Above the stair (towards rock/grass): rows row-1, row-2, ...
+    // Below the stair (towards grass/beach): rows row+1, row+2, ...
+    const rowDiff = Math.abs(ty - row);
+    if (rowDiff > STAIR_CLEAR_ROWS) return false;
+    // Only block if within the stair run's column range plus margin
+    const margin = STAIR_CLEAR_COLS;
+    if (tx < start - margin || tx > start + width - 1 + margin) return false;
+    return true;
+  };
+
+  // Remove trees that block stair entries
+  world.trees = world.trees.filter((t) => {
+    if (!blocksStairEntry(t.x, t.y, world.stairs[0])) return true;
+    for (const stair of world.stairs) {
+      if (blocksStairEntry(t.x, t.y, stair)) return false;
+    }
+    return true;
+  });
+
+  // Remove buildings that block stair entries
+  world.buildings = world.buildings.filter((b) => {
+    for (const stair of world.stairs) {
+      if (blocksStairEntry(b.x, b.y, stair)) return false;
+    }
+    return true;
+  });
+
+  // ── Ensure stairs are reachable from both top and bottom ──────────────────
+  // After pruning, verify each stair run has walkable tiles on both sides.
+  // If not, remove the blocking landmark and retry (up to a few iterations).
+  const ensureStairReachability = () => {
+    const cols = Math.floor((world.width * TILE) / CELL);
+    const rows = Math.floor((world.height * TILE) / CELL);
+    const isWalkable = (cx: number, cy: number): boolean => {
+      if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return false;
+      const kind = terrainAt(world, cx, cy);
+      return kind === 'grass' || kind === 'beach' || kind === 'rock' || kind === 'stairs';
+    };
+    for (const stair of world.stairs) {
+      const { start, width, row } = stair;
+      const midCol = start + Math.floor(width / 2);
+      // Check above (row - 1, row - 2, ...)
+      let aboveClear = false;
+      for (let dr = 1; dr <= 3; dr++) {
+        const ry = row - dr;
+        if (ry < 0) break;
+        if (isWalkable(midCol, ry)) { aboveClear = true; break; }
+      }
+      // Check below (row + 1, row + 2, ...)
+      let belowClear = false;
+      for (let dr = 1; dr <= 3; dr++) {
+        const ry = row + dr;
+        if (ry >= world.height) break;
+        if (isWalkable(midCol, ry)) { belowClear = true; break; }
+      }
+      // If either side is blocked, remove nearby landmarks and retry
+      if (!aboveClear || !belowClear) {
+        // Remove any tree or building whose solid rect overlaps the stair entry zone
+        const newTrees: Tree[] = [];
+        for (const t of world.trees) {
+          const blocked = blocksStairEntry(t.x, t.y, stair);
+          if (blocked) continue;
+          newTrees.push(t);
+        }
+        const newBuildings: Building[] = [];
+        for (const b of world.buildings) {
+          const blocked = blocksStairEntry(b.x, b.y, stair);
+          if (blocked) continue;
+          newBuildings.push(b);
+        }
+        if (newTrees.length < world.trees.length || newBuildings.length < world.buildings.length) {
+          world.trees = newTrees;
+          world.buildings = newBuildings;
+          // Recurse to recheck
+          ensureStairReachability();
+          return;
+        }
+      }
+    }
+  };
+  ensureStairReachability();
+
   // Keep only landmarks whose base the character can actually reach.
   const reach = new Set<string>();
   (() => {

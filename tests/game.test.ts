@@ -170,3 +170,101 @@ Deno.test('terraced world — player cannot stand on the cliff face but can on t
   }
   assertEquals(canOccupyAt(w, 4 * TILE + TILE / 2, (H - 2) * TILE + TILE / 2), true);
 });
+
+// ── Buildings on grassland ──────────────────────────────────────────────────
+
+Deno.test('buildings can be generated on grassland', () => {
+  // Generate multiple worlds to increase chance of hitting grass buildings
+  let foundGrassBuilding = false;
+  for (let seed = 1; seed <= 50; seed++) {
+    const w = generateWorld(seed, W, H);
+    for (const b of w.buildings) {
+      // Check if the building sits on grass terrain
+      const ty = b.y;
+      const tx = b.x;
+      for (let dy = 0; dy < 3; dy++) {
+        for (let dx = 0; dx < 3; dx++) {
+          if (ty + dy < H && tx + dx < W) {
+            if (w.terrain[ty + dy][tx + dx] === 'grass') {
+              foundGrassBuilding = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (foundGrassBuilding) break;
+  }
+  assert(foundGrassBuilding, 'at least one building should be placed on grass terrain');
+});
+
+// ── Stair accessibility ─────────────────────────────────────────────────────
+
+Deno.test('stairs are reachable from both top and bottom', () => {
+  for (let seed = 1; seed <= 50; seed++) {
+    const w = generateWorld(seed, W, H);
+    for (const stair of w.stairs) {
+      const { start, width, row } = stair;
+      const midCol = start + Math.floor(width / 2);
+      
+      // Check above (towards rock/grass): rows row-1, row-2, ...
+      let aboveClear = false;
+      for (let dr = 1; dr <= 5; dr++) {
+        const ry = row - dr;
+        if (ry < 0) break;
+        const kind = w.terrain[ry][midCol];
+        if (kind === 'grass' || kind === 'rock' || kind === 'beach') {
+          aboveClear = true;
+          break;
+        }
+      }
+      
+      // Check below (towards grass/beach): rows row+1, row+2, ...
+      let belowClear = false;
+      for (let dr = 1; dr <= 5; dr++) {
+        const ry = row + dr;
+        if (ry >= H) break;
+        const kind = w.terrain[ry][midCol];
+        if (kind === 'grass' || kind === 'rock' || kind === 'beach') {
+          belowClear = true;
+          break;
+        }
+      }
+      
+      assert(aboveClear, `stair at (${midCol},${row}) should be reachable from above`);
+      assert(belowClear, `stair at (${midCol},${row}) should be reachable from below`);
+    }
+  }
+});
+
+// ── Pruning blocking elements ───────────────────────────────────────────────
+
+Deno.test('trees and buildings block stair entryways are pruned', () => {
+  for (let seed = 1; seed <= 100; seed++) {
+    const w = generateWorld(seed, W, H);
+    for (const stair of w.stairs) {
+      const { start, width, row } = stair;
+      const midCol = start + Math.floor(width / 2);
+      
+      // Check that no tree blocks the stair entry zone
+      for (const t of w.trees) {
+        const colDiff = Math.abs(t.x - midCol);
+        const rowDiff = Math.abs(t.y - row);
+        assert(
+          !(colDiff <= 3 && rowDiff <= 2),
+          `tree at (${t.x},${t.y}) should not block stair entry at (${midCol},${row})`,
+        );
+      }
+      
+      // Check that no building blocks the stair entry zone
+      for (const b of w.buildings) {
+        const colDiff = Math.abs(b.x - midCol);
+        const rowDiff = Math.abs(b.y - row);
+        assert(
+          !(colDiff <= 3 && rowDiff <= 2),
+          `building at (${b.x},${b.y}) should not block stair entry at (${midCol},${row})`,
+        );
+      }
+    }
+  }
+});
