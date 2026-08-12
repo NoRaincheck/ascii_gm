@@ -140054,24 +140054,59 @@ function buildTerraced(world, rand) {
   const { width, height } = world;
   const seaMargin = 2;
   const seaTop = 2;
-  const beachH = 3;
-  const midGrassH = 8;
-  const rockH = 2;
   const minGap = 10;
   const maxStairs = 3;
+  const maxInset = 2;
   const interiorStart = seaMargin;
   const interiorEnd = width - seaMargin - 1;
+  const beachH = 2 + Math.floor(rand() * 2);
+  const midGrassH = 7 + Math.floor(rand() * 3);
   const lowerCliffRow = Math.max(seaTop, height - beachH - 1);
   const upperCliffRow = lowerCliffRow - midGrassH - 1;
-  const rockRows = upperCliffRow - seaTop;
-  const touchesWater = (start, width2) => start === interiorStart || start + width2 - 1 === interiorEnd;
+  const columnNoise = (max) => {
+    const noise = new Array(width).fill(0);
+    const step = 3;
+    const anchors = [];
+    for (let v = 0; v <= Math.ceil(width / step); v++) {
+      anchors.push(Math.floor(rand() * (max + 1)));
+    }
+    const last = anchors.length - 1;
+    for (let tx = 0; tx < width; tx++) {
+      const pos = tx / Math.max(width - 1, 1) * last;
+      const i = Math.min(Math.floor(pos), last - 1);
+      const f = pos - i;
+      noise[tx] = Math.round(anchors[i] + (anchors[i + 1] - anchors[i]) * f);
+    }
+    return noise;
+  };
+  const eL = columnNoise(maxInset);
+  const eR = columnNoise(maxInset);
+  const onLand = (tx) => tx >= seaMargin + eL[tx] && tx <= width - 1 - seaMargin - eR[tx];
+  const forceLand = (start, runWidth) => {
+    const first = Math.max(seaMargin, start - 1);
+    const last = Math.min(width - 1 - seaMargin, start + runWidth);
+    for (let c = first; c <= last; c++) {
+      eL[c] = 0;
+      eR[c] = 0;
+    }
+  };
+  const touchesWater = (start, runWidth) => {
+    const left = start - 1;
+    const right = start + runWidth;
+    const leftSea = left < seaMargin || !onLand(left);
+    const rightSea = right > width - 1 - seaMargin || !onLand(right);
+    return leftSea || rightSea;
+  };
   const stairs = [];
   const bandStairs = (row) => stairs.filter((s) => s.row === row);
-  const fits = (row, start, width2) => {
-    if (start < interiorStart || start + width2 - 1 > interiorEnd) return false;
+  const fits = (row, start, runWidth) => {
+    if (start < interiorStart || start + runWidth - 1 > interiorEnd) return false;
+    for (let c = start; c < start + runWidth; c++) {
+      if (!onLand(c)) return false;
+    }
     for (const r of bandStairs(row)) {
       const gapBelow = start - (r.start + r.width - 1);
-      const gapAbove = r.start - (start + width2 - 1);
+      const gapAbove = r.start - (start + runWidth - 1);
       if (Math.max(gapAbove, gapBelow) < minGap) return false;
     }
     return true;
@@ -140082,11 +140117,12 @@ function buildTerraced(world, rand) {
       if (placed) break;
       for (let i = 0; i < maxStairs && !placed; i++) {
         for (let attempt = 0; attempt < 40 && !placed; attempt++) {
-          const width2 = 1 + Math.floor(rand() * 3);
+          const runWidth = 1 + Math.floor(rand() * 3);
           const start = interiorStart + Math.floor(rand() * (interiorEnd - interiorStart + 1));
-          if (!fits(row, start, width2)) continue;
-          if (preferDry && touchesWater(start, width2)) continue;
-          stairs.push({ start, width: width2, row });
+          if (!fits(row, start, runWidth)) continue;
+          if (preferDry && touchesWater(start, runWidth)) continue;
+          stairs.push({ start, width: runWidth, row });
+          forceLand(start, runWidth);
           placed = true;
         }
       }
@@ -140096,30 +140132,72 @@ function buildTerraced(world, rand) {
   placeBand(lowerCliffRow);
   placeBand(upperCliffRow);
   if (bandStairs(lowerCliffRow).length === 0) {
-    stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1, row: lowerCliffRow });
+    const start = Math.max(interiorEnd - 1, interiorStart);
+    stairs.push({ start, width: 1, row: lowerCliffRow });
+    forceLand(start, 1);
   }
   if (bandStairs(upperCliffRow).length === 0) {
-    stairs.push({ start: Math.max(interiorEnd - 1, interiorStart), width: 1, row: upperCliffRow });
+    const start = Math.max(interiorEnd - 1, interiorStart);
+    stairs.push({ start, width: 1, row: upperCliffRow });
+    forceLand(start, 1);
+  }
+  const uStep = columnNoise(1);
+  const lStep = columnNoise(1);
+  const stepBlocked = (row, tx) => {
+    for (const s of bandStairs(row)) {
+      if (tx >= s.start - 1 && tx <= s.start + s.width) return true;
+    }
+    return false;
+  };
+  for (let tx = seaMargin; tx <= width - 1 - seaMargin; tx++) {
+    if (!onLand(tx)) continue;
+    if (stepBlocked(upperCliffRow, tx)) uStep[tx] = 0;
+    if (stepBlocked(lowerCliffRow, tx)) lStep[tx] = 0;
+  }
+  const stairCols = (row) => {
+    const cols = /* @__PURE__ */ new Set();
+    for (const s of bandStairs(row)) {
+      for (let c = s.start; c < s.start + s.width; c++) cols.add(c);
+    }
+    return cols;
+  };
+  const upperStairs = stairCols(upperCliffRow);
+  const lowerStairs = stairCols(lowerCliffRow);
+  const crownBite = /* @__PURE__ */ new Set();
+  const shoreBite = /* @__PURE__ */ new Set();
+  for (let tx = 0; tx < width; tx++) {
+    if (onLand(tx)) {
+      if (rand() < 0.3) crownBite.add(tx);
+      if (rand() < 0.3) shoreBite.add(tx);
+    }
   }
   world.stairs = stairs;
   world.terrain = [];
   for (let ty = 0; ty < height; ty++) {
     const terrainRow = [];
     for (let tx = 0; tx < width; tx++) {
+      const uWallRow = upperCliffRow + uStep[tx];
+      const lWallRow = lowerCliffRow - lStep[tx];
       let kind;
       if (tx < seaMargin || tx >= width - seaMargin || ty < seaTop) {
         kind = "sea";
-      } else if (ty >= height - beachH) {
-        kind = "beach";
-      } else if (ty === lowerCliffRow || ty === upperCliffRow) {
-        const isStairs = bandStairs(ty).some((s) => tx >= s.start && tx < s.start + s.width);
-        kind = isStairs ? "stairs" : "cliff";
-      } else if (ty > lowerCliffRow) {
-        kind = "beach";
-      } else if (ty > upperCliffRow) {
-        kind = "grass";
-      } else {
+      } else if (ty < uWallRow) {
         kind = "rock";
+      } else if (ty === uWallRow) {
+        kind = upperStairs.has(tx) ? "stairs" : "cliff";
+      } else if (ty === lWallRow) {
+        kind = lowerStairs.has(tx) ? "stairs" : "cliff";
+      } else if (ty > lWallRow) {
+        kind = "beach";
+      } else {
+        kind = "grass";
+      }
+      if (kind !== "sea" && !onLand(tx)) {
+        kind = "sea";
+      } else if (kind === "rock" && ty === seaTop && crownBite.has(tx)) {
+        kind = "sea";
+      } else if (kind === "beach" && ty === height - 1 && shoreBite.has(tx)) {
+        kind = "sea";
       }
       terrainRow.push(kind);
     }
@@ -140386,7 +140464,6 @@ function generateWorld(seed, width = 16, height = 16) {
     return true;
   };
   world.trees = world.trees.filter((t) => {
-    if (!blocksStairEntry(t.x, t.y, world.stairs[0])) return true;
     for (const stair of world.stairs) {
       if (blocksStairEntry(t.x, t.y, stair)) return false;
     }
