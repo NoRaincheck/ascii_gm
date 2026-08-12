@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import {
   BUILDING_TYPES,
   type BuildingType,
+  CELL,
   decoFrameOffset,
+  findPath,
   flatEdgeMask,
   flatTileIndex,
   generateWorld,
@@ -10,6 +12,7 @@ import {
   landTouchesWater,
   movePlayer,
   TILE,
+  terrainAt,
 } from '../lib/game.ts';
 import type { TerrainKind } from '../lib/game.ts';
 import { elevationTileIndex, rockElevationTile, stairsTileVariant } from '../lib/elevation_tileset.ts';
@@ -48,6 +51,9 @@ class GameScene extends Phaser.Scene {
     S: Phaser.Input.Keyboard.Key;
     D: Phaser.Input.Keyboard.Key;
   };
+  private path: Array<{ px: number; py: number }> | null = null;
+  private targetMarker: Phaser.GameObjects.Image | null = null;
+  private markerFading = false;
 
   constructor() {
     super('game');
@@ -67,6 +73,7 @@ class GameScene extends Phaser.Scene {
     this.load.image('elevation', 'terrain_elevation.png');
     this.load.image('water', 'water.png');
     this.load.spritesheet('foam', 'foam.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.image('pointer_target', 'pointer_target.png');
     for (let i = 1; i <= 4; i++) {
       const n = String(i).padStart(2, '0');
       this.load.spritesheet(`rock${n}`, `Rocks_${n}.png`, { frameWidth: 128, frameHeight: 128 });
@@ -163,6 +170,78 @@ class GameScene extends Phaser.Scene {
     }
 
     this.keys = this.input.keyboard.addKeys('W,A,S,D') as GameScene['keys'];
+
+    // Click-to-move: clicking a reachable land tile walks the character to it
+    // via the shortest route (A* over the walk grid in lib/game.ts). Only land
+    // tiles are targets; water, cliffs, and landmark-solid tiles are ignored.
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      const wx = pointer.worldX;
+      const wy = pointer.worldY;
+      const tx = Math.floor(wx / TILE);
+      const ty = Math.floor(wy / TILE);
+      if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return;
+      const kind = terrainAt(this.world, tx, ty);
+      if (kind !== 'grass' && kind !== 'beach' && kind !== 'rock' && kind !== 'stairs') return;
+      const p = this.world.player;
+      // Snap the target to a sub-grid cell (CELL px) so the destination can be
+      // any point inside a tile, not just its center.
+      const ex = Math.floor(wx / CELL) * CELL + CELL / 2;
+      const ey = Math.floor(wy / CELL) * CELL + CELL / 2;
+      if (Math.hypot(ex - p.x, ey - p.y) < 4) return;
+      const path = findPath(this.world, p.x, p.y, ex, ey);
+      if (!path || path.length === 0) return;
+      this.path = path;
+      // Marker sits on the actual destination cell (the last waypoint), which
+      // may differ from the raw click point (e.g. a far edge or blocked cell).
+      const last = path[path.length - 1];
+      this.placeMarker(last.px, last.py);
+    });
+  }
+
+  // Destination marker: a pulsing pointer over the clicked tile. It pulses in
+  // and out at the destination while the unit travels, fades out once the unit
+  // is within 2 squares, and is destroyed on arrival / WASD cancel / re-click.
+  private placeMarker(x: number, y: number) {
+    this.clearMarker();
+    const marker = this.add.image(x, y, 'pointer_target');
+    marker.setDepth(12);
+    marker.setScale(0.9);
+    this.tweens.add({
+      targets: marker,
+      scale: { from: 0.85, to: 1.0 },
+      duration: 420,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    });
+    this.targetMarker = marker;
+    this.markerFading = false;
+  }
+
+  // Total distance still left to walk: from the current feet position through
+  // every remaining waypoint to the destination marker. Path waypoints are
+  // cell centers, so this is the true remaining route length (walls included).
+  private remainingPathLength(px: number, py: number): number {
+    let total = 0;
+    let cx = px;
+    let cy = py;
+    for (const wp of this.path) {
+      total += Math.hypot(wp.px - cx, wp.py - cy);
+      cx = wp.px;
+      cy = wp.py;
+    }
+    if (this.targetMarker) {
+      total += Math.hypot(this.targetMarker.x - cx, this.targetMarker.y - cy);
+    }
+    return total;
+  }
+
+  private clearMarker() {
+    if (this.targetMarker) {
+      this.targetMarker.destroy();
+      this.targetMarker = null;
+    }
+    this.markerFading = false;
   }
 
   // Layered tilemap, bottom to top: deep sea (water.png) → foam → rocks/elevation
@@ -277,6 +356,7 @@ class GameScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
+    const p = this.world.player;
     let dx = 0;
     let dy = 0;
     if (this.keys.W.isDown) dy = -1;
@@ -284,12 +364,82 @@ class GameScene extends Phaser.Scene {
     if (this.keys.A.isDown) dx = -1;
     if (this.keys.D.isDown) dx = 1;
 
-    const p = this.world.player;
-    const anim = this.player.anims.getName();
-    if (dx !== 0 || dy !== 0) {
+    const keyMoving = dx !== 0 || dy !== 0;
+    let moving = keyMoving;
+    if (keyMoving) {
+      // Manual WASD takes over and cancels any click-path in progress.
+      this.path = null;
+      this.clearMarker();
       const len = Math.hypot(dx, dy);
       const step = (SPEED * Math.min(delta, 50)) / 1000;
       movePlayer(this.world, dx / len, dy / len, step);
+    } else if (this.path && this.path.length > 0) {
+      // Fade out the marker once the unit has < 2 squares of path remaining.
+      // Measured along the route (not as the crow flies) so detours around
+      // walls/cliffs don't trigger an early or late fade.
+      if (this.targetMarker && !this.markerFading) {
+        const remaining = this.remainingPathLength(p.x, p.y);
+        if (remaining < 2 * TILE) {
+          this.markerFading = true;
+          this.tweens.add({
+            targets: this.targetMarker,
+            alpha: 0,
+            duration: 300,
+            ease: 'Sine.In',
+          });
+        }
+      }
+      // Follow the waypoint path at the walk speed. Each waypoint is an open
+      // cell center. When one is reached we snap onto it and advance.
+      const step = (SPEED * Math.min(delta, 50)) / 1000;
+      let guard = 0;
+      while (this.path.length > 0 && guard++ < 64) {
+        const wp = this.path[0];
+        const ex = wp.px - p.x;
+        const ey = wp.py - p.y;
+        const dist = Math.hypot(ex, ey);
+        if (dist <= 0.5) {
+          // Snapped exactly onto the waypoint center (guaranteed open) so the
+          // next leg starts clean — prevents float drift from wedging the body
+          // against narrow gaps like stair runs.
+          p.x = wp.px;
+          p.y = wp.py;
+          this.path.shift();
+          moving = true;
+          continue;
+        }
+        const ok = movePlayer(this.world, ex / dist, ey / dist, Math.min(step, dist));
+        moving = true;
+        const done = Math.hypot(wp.px - p.x, wp.py - p.y);
+        if (done <= 4) {
+          // Reached (or essentially reached) this waypoint — snap and advance.
+          p.x = wp.px;
+          p.y = wp.py;
+          this.path.shift();
+          continue;
+        }
+        if (!ok && dist < 16) {
+          // Collision-stopped right beside the waypoint; skip it to keep
+          // hugging the path rather than stalling forever.
+          this.path.shift();
+          continue;
+        }
+        if (!ok) {
+          // Blocked far from the waypoint — abandon rather than stall.
+          this.path = null;
+          this.clearMarker();
+          break;
+        }
+        break;
+      }
+      if (this.path && this.path.length === 0) {
+        this.path = null;
+        this.clearMarker();
+      }
+    }
+
+    const anim = this.player.anims.getName();
+    if (moving) {
       if (p.facing === 'left') this.player.setFlipX(true);
       else if (p.facing === 'right') this.player.setFlipX(false);
       if (anim !== 'walk') this.player.anims.play('walk');

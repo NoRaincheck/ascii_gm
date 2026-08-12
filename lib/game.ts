@@ -515,7 +515,7 @@ function placeDeco(world: World, rand: () => number): void {
   }
 }
 
-const CELL = 16;
+export const CELL = 24;
 
 function reachableAt(world: World, sx: number, sy: number): number {
   const cols = Math.floor((world.width * TILE) / CELL);
@@ -851,4 +851,76 @@ export function movePlayer(world: World, dx: number, dy: number, step: number): 
     if (!stepped) break;
   }
   return moved;
+}
+
+/**
+ * A* pathfinding over the sub-grid walk lattice (the same CELL grid used for
+ * reachability). Returns the walkable waypoints from the start cell to the end
+ * cell as cell-center pixel positions (excluding the start cell, including the
+ * target), or null when no route exists. A cell is open when the character body
+ * fits at its center (canOccupyAt), so water, cliffs, trees, and buildings are
+ * avoided while grass/beach/rock and staircases are traversable.
+ */
+export function findPath(
+  world: World,
+  sx: number,
+  sy: number,
+  ex: number,
+  ey: number,
+): Array<{ px: number; py: number }> | null {
+  const cols = Math.floor((world.width * TILE) / CELL);
+  const rows = Math.floor((world.height * TILE) / CELL);
+  const startX = Math.floor(sx / CELL);
+  const startY = Math.floor(sy / CELL);
+  const endX = Math.floor(ex / CELL);
+  const endY = Math.floor(ey / CELL);
+  const key = (cx: number, cy: number) => `${cx},${cy}`;
+  const openCell = (cx: number, cy: number): boolean => {
+    if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return false;
+    return canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2);
+  };
+  if (!openCell(endX, endY)) return null;
+  if (startX === endX && startY === endY) return [];
+
+  const g = new Map<string, number>();
+  const cameFrom = new Map<string, string>();
+  const startKey = key(startX, startY);
+  g.set(startKey, 0);
+  // Open set kept sorted-ish by f via a linear min scan (the grid is tiny).
+  const open: Array<[number, number, number]> = [[0, startX, startY]];
+  const neighbors: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let visited = 0;
+  while (open.length > 0) {
+    let best = 0;
+    for (let i = 1; i < open.length; i++) if (open[i][0] < open[best][0]) best = i;
+    const [, cx, cy] = open.splice(best, 1)[0];
+    if (cx === endX && cy === endY) {
+      const path: Array<{ px: number; py: number }> = [];
+      let cur = key(endX, endY);
+      while (cur !== startKey) {
+        const comma = cur.indexOf(',');
+        const px = Number(cur.slice(0, comma));
+        const py = Number(cur.slice(comma + 1));
+        path.push({ px: px * CELL + CELL / 2, py: py * CELL + CELL / 2 });
+        cur = cameFrom.get(cur)!;
+      }
+      return path.reverse();
+    }
+    const curKey = key(cx, cy);
+    const gScore = g.get(curKey)!;
+    for (const [dx, dy] of neighbors) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (!openCell(nx, ny)) continue;
+      const nKey = key(nx, ny);
+      const tentative = gScore + 1;
+      const prev = g.get(nKey);
+      if (prev !== undefined && prev <= tentative) continue;
+      g.set(nKey, tentative);
+      cameFrom.set(nKey, curKey);
+      open.push([tentative + Math.abs(nx - endX) + Math.abs(ny - endY), nx, ny]);
+    }
+    if (++visited > cols * rows * 4) return null;
+  }
+  return null;
 }
