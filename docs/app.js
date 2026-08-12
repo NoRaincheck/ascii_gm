@@ -140727,11 +140727,13 @@ var GameScene = class extends import_phaser.default.Scene {
     }
     this.keys = this.input.keyboard.addKeys("W,A,S,D");
   }
-  // Layered tilemap, bottom to top: deep sea (water.png) → foam → elevation
-  // cliff band (Tilemap_Elevation) → beach → grass. 64px tiles, one game tile
-  // each, so the world grid lines up with collision/placement. The cliff band
-  // shows the wall tiles (with one stairs tile at the climb point); beach and
-  // grass tiles draw the flat ground. Sea/coast get no flat layer.
+  // Layered tilemap, bottom to top: deep sea (water.png) → foam → rocks/elevation
+  // → grass → beach. 64px tiles, one game tile each, so the world grid lines up
+  // with collision/placement. The cliff band shows the wall tiles (with one stairs
+  // tile at the climb point); beach and grass tiles draw the flat ground.
+  // Sea/coast get no flat layer. Foam is below all land tiles so the land
+  // tiles naturally occlude the foam blob center; only the foam strips at tile
+  // edges show over water as ripples. No masking needed.
   buildTerrain() {
     const map = this.make.tilemap({ width: MAP_W, height: MAP_H, tileWidth: TILE, tileHeight: TILE });
     const waterTiles = map.addTilesetImage("water", "water");
@@ -140759,14 +140761,14 @@ var GameScene = class extends import_phaser.default.Scene {
       }
     }
   }
-  // Animated foam ripples along the coast. Each 192x192 frame is a foam blob
-  // centered on the frame; a sprite is centered on every land tile that touches
-  // water, so the opaque beach/grass tile drawn above (depth -7/-6) hides the
-  // blob's full center and only the outer foam strips show over the water as
-  // ripples. The foam is masked to the sea: the shore land tiles have transparent
-  // edge speckles in their art, and without the mask the blob body bleeds through
-  // them (white flecks on grass/beach, including edges facing the cliff band).
-  // Start frames are staggered per tile to avoid lockstep animation.
+  // Animated foam ripples along the coast. Each frame is a 3×3 grid of 64px
+  // tiles (192×192 total). The blob is centered on the frame with foam strips
+  // extending into the 4 orthogonal neighbor tiles (corners are empty). A sprite
+  // is centered on every land tile that touches water. Foam is drawn at depth
+  // -10 (same as water, but created after so it sits on top of water tiles).
+  // Land tiles (elevation/grass/beach) are at higher depths so they naturally
+  // occlude the foam blob center; only the foam strips at tile edges show over
+  // water as ripples. No masking needed.
   buildFoam() {
     const foamSprites = [];
     for (let ty = 0; ty < MAP_H; ty++) {
