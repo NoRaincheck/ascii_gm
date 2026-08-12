@@ -40,6 +40,8 @@ async function main() {
     'assets/Terrain/Water/Rocks/Rocks_02.png': `${DOCS}/Rocks_02.png`,
     'assets/Terrain/Water/Rocks/Rocks_03.png': `${DOCS}/Rocks_03.png`,
     'assets/Terrain/Water/Rocks/Rocks_04.png': `${DOCS}/Rocks_04.png`,
+    'assets/UI/Pointers/01.png': `${DOCS}/pointer_cursor.png`,
+    'assets/UI/Pointers/02.png': `${DOCS}/pointer_target.png`,
   };
   for (let i = 1; i <= 15; i++) {
     // skip large deco items for now

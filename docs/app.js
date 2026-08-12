@@ -140253,7 +140253,7 @@ function placeDeco(world, rand) {
     }
   }
 }
-var CELL = 16;
+var CELL = 24;
 function reachableAt(world, sx, sy) {
   const cols = Math.floor(world.width * TILE / CELL);
   const rows = Math.floor(world.height * TILE / CELL);
@@ -140537,6 +140537,61 @@ function movePlayer(world, dx, dy, step) {
   }
   return moved;
 }
+function findPath(world, sx, sy, ex, ey) {
+  const cols = Math.floor(world.width * TILE / CELL);
+  const rows = Math.floor(world.height * TILE / CELL);
+  const startX = Math.floor(sx / CELL);
+  const startY = Math.floor(sy / CELL);
+  const endX = Math.floor(ex / CELL);
+  const endY = Math.floor(ey / CELL);
+  const key = (cx, cy) => `${cx},${cy}`;
+  const openCell = (cx, cy) => {
+    if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return false;
+    return canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2);
+  };
+  if (!openCell(endX, endY)) return null;
+  if (startX === endX && startY === endY) return [];
+  const g = /* @__PURE__ */ new Map();
+  const cameFrom = /* @__PURE__ */ new Map();
+  const startKey = key(startX, startY);
+  g.set(startKey, 0);
+  const open = [[0, startX, startY]];
+  const neighbors = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let visited = 0;
+  while (open.length > 0) {
+    let best = 0;
+    for (let i = 1; i < open.length; i++) if (open[i][0] < open[best][0]) best = i;
+    const [, cx, cy] = open.splice(best, 1)[0];
+    if (cx === endX && cy === endY) {
+      const path = [];
+      let cur = key(endX, endY);
+      while (cur !== startKey) {
+        const comma = cur.indexOf(",");
+        const px = Number(cur.slice(0, comma));
+        const py = Number(cur.slice(comma + 1));
+        path.push({ px: px * CELL + CELL / 2, py: py * CELL + CELL / 2 });
+        cur = cameFrom.get(cur);
+      }
+      return path.reverse();
+    }
+    const curKey = key(cx, cy);
+    const gScore = g.get(curKey);
+    for (const [dx, dy] of neighbors) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (!openCell(nx, ny)) continue;
+      const nKey = key(nx, ny);
+      const tentative = gScore + 1;
+      const prev = g.get(nKey);
+      if (prev !== void 0 && prev <= tentative) continue;
+      g.set(nKey, tentative);
+      cameFrom.set(nKey, curKey);
+      open.push([tentative + Math.abs(nx - endX) + Math.abs(ny - endY), nx, ny]);
+    }
+    if (++visited > cols * rows * 4) return null;
+  }
+  return null;
+}
 
 // lib/elevation_tileset.ts
 var COLS = 4;
@@ -140639,6 +140694,9 @@ var GameScene = class extends import_phaser.default.Scene {
     __publicField(this, "world");
     __publicField(this, "player");
     __publicField(this, "keys");
+    __publicField(this, "path", null);
+    __publicField(this, "targetMarker", null);
+    __publicField(this, "markerFading", false);
   }
   preload() {
     this.load.spritesheet("warrior", "warrior_blue.png", { frameWidth: 192, frameHeight: 192 });
@@ -140654,6 +140712,7 @@ var GameScene = class extends import_phaser.default.Scene {
     this.load.image("elevation", "terrain_elevation.png");
     this.load.image("water", "water.png");
     this.load.spritesheet("foam", "foam.png", { frameWidth: 192, frameHeight: 192 });
+    this.load.image("pointer_target", "pointer_target.png");
     for (let i = 1; i <= 4; i++) {
       const n = String(i).padStart(2, "0");
       this.load.spritesheet(`rock${n}`, `Rocks_${n}.png`, { frameWidth: 128, frameHeight: 128 });
@@ -140726,6 +140785,67 @@ var GameScene = class extends import_phaser.default.Scene {
       });
     }
     this.keys = this.input.keyboard.addKeys("W,A,S,D");
+    this.input.on("pointerdown", (pointer) => {
+      const wx = pointer.worldX;
+      const wy = pointer.worldY;
+      const tx = Math.floor(wx / TILE);
+      const ty = Math.floor(wy / TILE);
+      if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return;
+      const kind = terrainAt(this.world, tx, ty);
+      if (kind !== "grass" && kind !== "beach" && kind !== "rock" && kind !== "stairs") return;
+      const p2 = this.world.player;
+      const ex = Math.floor(wx / CELL) * CELL + CELL / 2;
+      const ey = Math.floor(wy / CELL) * CELL + CELL / 2;
+      if (Math.hypot(ex - p2.x, ey - p2.y) < 4) return;
+      const path = findPath(this.world, p2.x, p2.y, ex, ey);
+      if (!path || path.length === 0) return;
+      this.path = path;
+      const last = path[path.length - 1];
+      this.placeMarker(last.px, last.py);
+    });
+  }
+  // Destination marker: a pulsing pointer over the clicked tile. It pulses in
+  // and out at the destination while the unit travels, fades out once the unit
+  // is within 2 squares, and is destroyed on arrival / WASD cancel / re-click.
+  placeMarker(x, y) {
+    this.clearMarker();
+    const marker = this.add.image(x, y, "pointer_target");
+    marker.setDepth(12);
+    marker.setScale(0.9);
+    this.tweens.add({
+      targets: marker,
+      scale: { from: 0.85, to: 1 },
+      duration: 420,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.InOut"
+    });
+    this.targetMarker = marker;
+    this.markerFading = false;
+  }
+  // Total distance still left to walk: from the current feet position through
+  // every remaining waypoint to the destination marker. Path waypoints are
+  // cell centers, so this is the true remaining route length (walls included).
+  remainingPathLength(px, py) {
+    let total = 0;
+    let cx = px;
+    let cy = py;
+    for (const wp of this.path) {
+      total += Math.hypot(wp.px - cx, wp.py - cy);
+      cx = wp.px;
+      cy = wp.py;
+    }
+    if (this.targetMarker) {
+      total += Math.hypot(this.targetMarker.x - cx, this.targetMarker.y - cy);
+    }
+    return total;
+  }
+  clearMarker() {
+    if (this.targetMarker) {
+      this.targetMarker.destroy();
+      this.targetMarker = null;
+    }
+    this.markerFading = false;
   }
   // Layered tilemap, bottom to top: deep sea (water.png) → foam → rocks/elevation
   // → grass → beach. 64px tiles, one game tile each, so the world grid lines up
@@ -140829,18 +140949,75 @@ var GameScene = class extends import_phaser.default.Scene {
     }
   }
   update(time, delta) {
+    const p = this.world.player;
     let dx = 0;
     let dy = 0;
     if (this.keys.W.isDown) dy = -1;
     if (this.keys.S.isDown) dy = 1;
     if (this.keys.A.isDown) dx = -1;
     if (this.keys.D.isDown) dx = 1;
-    const p = this.world.player;
-    const anim = this.player.anims.getName();
-    if (dx !== 0 || dy !== 0) {
+    const keyMoving = dx !== 0 || dy !== 0;
+    let moving = keyMoving;
+    if (keyMoving) {
+      this.path = null;
+      this.clearMarker();
       const len = Math.hypot(dx, dy);
       const step = SPEED * Math.min(delta, 50) / 1e3;
       movePlayer(this.world, dx / len, dy / len, step);
+    } else if (this.path && this.path.length > 0) {
+      if (this.targetMarker && !this.markerFading) {
+        const remaining = this.remainingPathLength(p.x, p.y);
+        if (remaining < 2 * TILE) {
+          this.markerFading = true;
+          this.tweens.add({
+            targets: this.targetMarker,
+            alpha: 0,
+            duration: 300,
+            ease: "Sine.In"
+          });
+        }
+      }
+      const step = SPEED * Math.min(delta, 50) / 1e3;
+      let guard = 0;
+      while (this.path.length > 0 && guard++ < 64) {
+        const wp = this.path[0];
+        const ex = wp.px - p.x;
+        const ey = wp.py - p.y;
+        const dist = Math.hypot(ex, ey);
+        if (dist <= 0.5) {
+          p.x = wp.px;
+          p.y = wp.py;
+          this.path.shift();
+          moving = true;
+          continue;
+        }
+        const ok = movePlayer(this.world, ex / dist, ey / dist, Math.min(step, dist));
+        moving = true;
+        const done = Math.hypot(wp.px - p.x, wp.py - p.y);
+        if (done <= 4) {
+          p.x = wp.px;
+          p.y = wp.py;
+          this.path.shift();
+          continue;
+        }
+        if (!ok && dist < 16) {
+          this.path.shift();
+          continue;
+        }
+        if (!ok) {
+          this.path = null;
+          this.clearMarker();
+          break;
+        }
+        break;
+      }
+      if (this.path && this.path.length === 0) {
+        this.path = null;
+        this.clearMarker();
+      }
+    }
+    const anim = this.player.anims.getName();
+    if (moving) {
       if (p.facing === "left") this.player.setFlipX(true);
       else if (p.facing === "right") this.player.setFlipX(false);
       if (anim !== "walk") this.player.anims.play("walk");

@@ -106,6 +106,7 @@ button:hover, select:hover {
   image-rendering: pixelated;
   border-radius: 8px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  cursor: url('pointer_cursor.png') 16 16, auto;
 }
 
 /* Layout wrapper: side-by-side for portrait, stacked for landscape */
