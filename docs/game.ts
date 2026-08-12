@@ -165,13 +165,11 @@ class GameScene extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys('W,A,S,D') as GameScene['keys'];
   }
 
-  // Layered tilemap, bottom to top: deep sea (water.png) → foam → rocks/elevation
-  // → grass → beach. 64px tiles, one game tile each, so the world grid lines up
-  // with collision/placement. The cliff band shows the wall tiles (with one stairs
-  // tile at the climb point); beach and grass tiles draw the flat ground.
-  // Sea/coast get no flat layer. Foam is below all land tiles so the land
-  // tiles naturally occlude the foam blob center; only the foam strips at tile
-  // edges show over water as ripples. No masking needed.
+  // Layered tilemap, bottom to top: deep sea (water.png) → foam → elevation
+  // cliff band (Tilemap_Elevation) → beach → grass. 64px tiles, one game tile
+  // each, so the world grid lines up with collision/placement. The cliff band
+  // shows the wall tiles (with one stairs tile at the climb point); beach and
+  // grass tiles draw the flat ground. Sea/coast get no flat layer.
   private buildTerrain() {
     const map = this.make.tilemap({ width: MAP_W, height: MAP_H, tileWidth: TILE, tileHeight: TILE });
     const waterTiles = map.addTilesetImage('water', 'water')!;
@@ -179,8 +177,8 @@ class GameScene extends Phaser.Scene {
     const flatTiles = map.addTilesetImage('flat', 'flat')!;
     map.createBlankLayer('water', waterTiles)!.fill(0).setDepth(-10);
     const elevationLayer = map.createBlankLayer('elevation', elevationTiles)!.setDepth(-9);
-    const grassLayer = map.createBlankLayer('grass', flatTiles)!.setDepth(-8);
     const beachLayer = map.createBlankLayer('beach', flatTiles)!.setDepth(-7);
+    const grassLayer = map.createBlankLayer('grass', flatTiles)!.setDepth(-6);
     for (let ty = 0; ty < MAP_H; ty++) {
       for (let tx = 0; tx < MAP_W; tx++) {
         const kind = this.world.terrain[ty][tx];
@@ -206,21 +204,55 @@ class GameScene extends Phaser.Scene {
   // Animated foam ripples along the coast. Each frame is a 3×3 grid of 64px
   // tiles (192×192 total). The blob is centered on the frame with foam strips
   // extending into the 4 orthogonal neighbor tiles (corners are empty). A sprite
-  // is centered on every land tile that touches water. Foam is drawn at depth
-  // -10 (same as water, but created after so it sits on top of water tiles).
-  // Land tiles (elevation/grass/beach) are at higher depths so they naturally
-  // occlude the foam blob center; only the foam strips at tile edges show over
-  // water as ripples. No masking needed.
-  // Start frames are staggered per tile to avoid lockstep animation.
+  // is centered on every land tile that touches water, so the opaque beach/grass
+  // tile drawn above (depth -7/-6) hides the blob's full center and only the
+  // outer foam strips show over the water as ripples. The foam is masked to the
+  // sea: the shore land tiles have transparent edge speckles in their art, and
+  // without the mask the blob body bleeds through them (white flecks on
+  // grass/beach, including edges facing the cliff band). Start frames are
+  // staggered per tile to avoid lockstep animation.
   private buildFoam() {
+    const foamSprites: Phaser.GameObjects.Sprite[] = [];
     for (let ty = 0; ty < MAP_H; ty++) {
       for (let tx = 0; tx < MAP_W; tx++) {
         if (!landTouchesWater(this.world, tx, ty)) continue;
         const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, 'foam');
-        sprite.setDepth(-10);
-        sprite.play({ key: 'foam', startFrame: ((ty * MAP_W + tx) * 3) % 8 });
+        sprite.setDepth(-8);
+        foamSprites.push(sprite);
       }
     }
+    // Foam sprites are 3×3 tiles (192×192) centered on the land tile. When
+    // placed on edge tiles they extend 96px beyond the map boundary. The mask
+    // must extend past the map edges to contain those sprite extents.
+    //
+    // The mask is shaped like the water tiles so foam strips only show over
+    // water — not over cliff/elevation tiles or water rock sprites. Without
+    // this, foam bleeds onto beach/grass edges facing cliffs and onto the
+    // rock sprites themselves.
+    const PADDING = TILE * 2; // 128px margin on each side covers any sprite
+    const maskW = MAP_W * TILE + PADDING * 2;
+    const maskH = MAP_H * TILE + PADDING * 2;
+    const maskGraphics = this.make.graphics({ add: false });
+    maskGraphics.fillStyle(0xffffff);
+    // Draw opaque rectangles only on water tile positions (sea + coast)
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
+        const kind = this.world.terrain[ty][tx];
+        if (kind === 'sea' || kind === 'coast') {
+          maskGraphics.fillRect(
+            tx * TILE - PADDING,
+            ty * TILE - PADDING,
+            TILE,
+            TILE,
+          );
+        }
+      }
+    }
+    const mask = maskGraphics.createGeometryMask();
+    foamSprites.forEach((sprite) => sprite.setMask(mask));
+    foamSprites.forEach((sprite, i) => {
+      sprite.play({ key: 'foam', startFrame: (i * 3) % 8 });
+    });
   }
 
   // Animated water rocks on sea/coast tiles. Each 128×128 frame is a rock with
