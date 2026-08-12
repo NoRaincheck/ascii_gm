@@ -11,7 +11,8 @@ import {
   movePlayer,
   TILE,
 } from '../lib/game.ts';
-import { elevationTileIndex, stairsTileVariant } from '../lib/elevation_tileset.ts';
+import type { TerrainKind } from '../lib/game.ts';
+import { elevationTileIndex, rockElevationTile, stairsTileVariant } from '../lib/elevation_tileset.ts';
 import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
@@ -188,6 +189,9 @@ class GameScene extends Phaser.Scene {
           const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
           const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, this.world.terrain[ty], tx);
           elevationLayer.putTileAt(tile, tx, ty);
+        } else if (kind === 'rock') {
+          // Rock plateau uses elevation tiles (rock border autotiling).
+          elevationLayer.putTileAt(rockElevationTile(this.world, tx, ty), tx, ty);
         } else if (kind === 'beach' || kind === 'grass') {
           const layer = kind === 'beach' ? beachLayer : grassLayer;
           layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);

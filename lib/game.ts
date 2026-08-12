@@ -34,7 +34,7 @@ export interface Player {
   facing: 'up' | 'down' | 'left' | 'right';
 }
 
-export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'stairs';
+export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'rock' | 'stairs';
 
 export interface StairRun {
   start: number;
@@ -52,6 +52,7 @@ export interface World {
   waterRocks: WaterRock[];
   stairs: StairRun[];
   player: Player;
+  level: number; // 0=bottom(beach), 1=middle(grass), 2=top(rock)
 }
 
 export interface Rect {
@@ -182,19 +183,31 @@ export function terrainAt(world: World, tx: number, ty: number): TerrainKind {
   return world.terrain[ty][tx];
 }
 
+/**
+ * Return the level index for a terrain tile: 0=bottom(beach), 1=middle(grass), 2=top(rock).
+ * Sea, coast, cliff, and stairs are outside the level hierarchy.
+ */
+export function terrainLevel(world: World, tx: number, ty: number): number | null {
+  const kind = terrainAt(world, tx, ty);
+  if (kind === 'beach') return 0;
+  if (kind === 'grass') return 1;
+  if (kind === 'rock') return 2;
+  return null;
+}
+
 // Edge bits for the flat autotile tileset (Tilemap_Flat.png).
 export const EDGE_N = 1;
 export const EDGE_S = 2;
 export const EDGE_W = 4;
 export const EDGE_E = 8;
 
-// True when a land tile (beach/grass) has an orthogonal water (sea/coast)
+// True when a land tile (beach/grass/rock) has an orthogonal water (sea/coast)
 // neighbor. Foam is centered on these land tiles: the opaque land tile drawn
 // above hides the foam blob's full center, leaving only the outer foam strips
 // to ripple out over the adjacent water.
 export function landTouchesWater(world: World, tx: number, ty: number): boolean {
   const kind = terrainAt(world, tx, ty);
-  if (kind !== 'beach' && kind !== 'grass') return false;
+  if (kind !== 'beach' && kind !== 'grass' && kind !== 'rock') return false;
   const neighbors: Array<[number, number]> = [[0, -1], [0, 1], [-1, 0], [1, 0]];
   for (const [dx, dy] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
@@ -203,10 +216,10 @@ export function landTouchesWater(world: World, tx: number, ty: number): boolean 
   return false;
 }
 
-// Autotile border mask for a grass/beach tile: a border is drawn on each side
-// where the region meets a "lower" terrain kind — grass against beach/coast/
-// sea, beach against coast/sea. Bits are EDGE_N/S/W/E.
-export function flatEdgeMask(world: World, tx: number, ty: number, kind: 'grass' | 'beach'): number {
+// Autotile border mask for a grass/beach/rock tile: a border is drawn on each
+// side where the region meets a "lower" terrain kind — grass against beach/coast/rock/sea,
+// beach against coast/sea, rock against sea. Bits are EDGE_N/S/W/E.
+export function flatEdgeMask(world: World, tx: number, ty: number, kind: 'grass' | 'beach' | 'rock'): number {
   let mask = 0;
   const neighbors: Array<[number, number, number]> = [
     [0, -1, EDGE_N],
@@ -216,7 +229,10 @@ export function flatEdgeMask(world: World, tx: number, ty: number, kind: 'grass'
   ];
   for (const [dx, dy, bit] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
-    const border = kind === 'grass' ? n !== 'grass' : n === 'coast' || n === 'sea';
+    const border =
+      kind === 'grass' ? n !== 'grass' :
+      kind === 'beach' ? n === 'coast' || n === 'sea' :
+      /* rock */ n === 'sea';
     if (border) mask |= bit;
   }
   return mask;
@@ -224,9 +240,9 @@ export function flatEdgeMask(world: World, tx: number, ty: number, kind: 'grass'
 
 // Map an edge mask to the flat tileset index. Each 4x4 block encodes the border
 // combo: column = W/E (col0=W, col1=none, col2=E, col3=W+E), row = N/S
-// (row0=N, row1=none, row2=S, row3=N+S). Grass lives in block 0, beach in the
-// mirrored block at column 5 of the 10-wide sheet.
-export function flatTileIndex(kind: 'grass' | 'beach', mask: number): number {
+// (row0=N, row1=none, row2=S, row3=N+S). Grass and rock live in block 0,
+// beach in the mirrored block at column 5 of the 10-wide sheet.
+export function flatTileIndex(kind: 'grass' | 'beach' | 'rock', mask: number): number {
   const hasN = (mask & EDGE_N) !== 0;
   const hasS = (mask & EDGE_S) !== 0;
   const hasW = (mask & EDGE_W) !== 0;
@@ -238,27 +254,31 @@ export function flatTileIndex(kind: 'grass' | 'beach', mask: number): number {
 }
 
 // The world is a terraced island: from the top of the map down — a raised
-// grass plateau, an upper cliff band, a mid-grass terrace, a lower cliff band,
-// lower grass, then a beach shoreline at the bottom. Sea margins frame the
-// island on the top and sides so it floats in the water. Both 1-tile-tall
-// cliff bands are impassable except at stairs — each band gets at least one
-// randomly-placed staircase (1-3 tiles wide, runs on the same band ≥10 columns
-// apart) so every terrace is reachable. Staircases ideally stay clear of the
-// sea margins; a spot up against the water is only used when no dry position
-// exists.
+// rock plateau, an upper cliff band, a wide mid-grass terrace, a lower cliff
+// band, then a beach shoreline at the bottom. Three distinct levels:
+//   Level 0 (bottom): beach (narrow)
+//   Level 1 (middle): grass (widest)
+//   Level 2 (top):    rock (narrow)
+// Sea margins frame the island on the top and sides so it floats in the water.
+// Both 1-tile-tall cliff bands are impassable except at stairs — each band
+// gets at least one randomly-placed staircase (1-3 tiles wide, runs on the
+// same band ≥10 columns apart) so every terrace is reachable. Staircases
+// ideally stay clear of the sea margins; a spot up against the water is only
+// used when no dry position exists.
 function buildTerraced(world: World, rand: () => number): void {
   const { width, height } = world;
   const seaMargin = 2; // sea columns on each side
   const seaTop = 2; // sea rows at the top
-  const beachH = 2; // beach rows at the bottom
-  const lowerGrassH = 2; // lower grass rows between lower cliff and beach
-  const midGrassH = 2; // mid grass rows between the two cliff bands
+  const beachH = 3; // beach rows at the bottom (narrow)
+  const midGrassH = 8; // mid grass rows between the two cliff bands (widest)
+  const rockH = 2; // rock plateau rows at the top
   const minGap = 10; // minimum columns between any two stairs runs on a band
   const maxStairs = 3; // try to place up to this many staircases per band
   const interiorStart = seaMargin; // first usable column (inclusive)
   const interiorEnd = width - seaMargin - 1; // last usable column (inclusive)
-  const lowerCliffRow = Math.max(seaTop, height - beachH - lowerGrassH - 1);
+  const lowerCliffRow = Math.max(seaTop, height - beachH - 1);
   const upperCliffRow = lowerCliffRow - midGrassH - 1;
+  const rockRows = upperCliffRow - seaTop; // should equal rockH
 
   // A staircase touches the sea when one of its ends sits against a margin.
   const touchesWater = (start: number, width: number): boolean =>
@@ -322,13 +342,21 @@ function buildTerraced(world: World, rand: () => number): void {
       } else if (ty === lowerCliffRow || ty === upperCliffRow) {
         const isStairs = bandStairs(ty).some((s) => tx >= s.start && tx < s.start + s.width);
         kind = isStairs ? 'stairs' : 'cliff';
-      } else {
+      } else if (ty > lowerCliffRow) {
+        // Lower terrace (between lower cliff and beach) → beach
+        kind = 'beach';
+      } else if (ty > upperCliffRow) {
+        // Mid terrace (between cliff bands) → grass (widest band)
         kind = 'grass';
+      } else {
+        // Top plateau (above upper cliff) → rock
+        kind = 'rock';
       }
       terrainRow.push(kind);
     }
     world.terrain.push(terrainRow);
   }
+  world.level = 2; // top level is rock
 }
 
 // The tile the body stands on at a pixel position (feet + body width probes).
@@ -378,6 +406,7 @@ function contentOverlaps(world: World, r: Rect): boolean {
 }
 
 // Landmarks only sit on the lawn — every tile under the content rect must be grass.
+// Trees only go on grass.
 function rectOnGrass(world: World, r: Rect): boolean {
   const x0 = Math.floor(r.x / TILE);
   const y0 = Math.floor(r.y / TILE);
@@ -386,6 +415,41 @@ function rectOnGrass(world: World, r: Rect): boolean {
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
       if (terrainAt(world, tx, ty) !== 'grass') return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Check if a rect sits on walkable terrain suitable for buildings
+ * (grass or rock, but not beach, sea, coast, or cliff).
+ */
+function rectOnBuildingSite(world: World, r: Rect): boolean {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const kind = terrainAt(world, tx, ty);
+      if (kind !== 'grass' && kind !== 'rock') return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Check if a rect sits on any walkable terrain (grass, beach, or rock).
+ */
+function rectOnWalkable(world: World, r: Rect): boolean {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const kind = terrainAt(world, tx, ty);
+      if (kind !== 'grass' && kind !== 'beach' && kind !== 'rock') return false;
     }
   }
   return true;
@@ -492,32 +556,39 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     waterRocks: [],
     stairs: [],
     player: { x: 0, y: 0, facing: 'down' },
+    level: 0,
   };
   buildTerraced(world, rand);
 
   // Landmarks sit on a lattice so they line up nicely on the grid. Buildings
-  // are placed first: in the terraced layout the buildable grass rows are
-  // scarce, and a building's tall content rect must not be crowded out by trees.
+  // can be placed on rock or grass (not beach). Trees only go on grass.
+  // Buildings are placed first: rock slots are tried before grass slots so
+  // the rock plateau gets structures, then grass fills in.
   const numBuildings = 1 + Math.floor(rand() * 2);
-  const houseSlots = shuffleWith(
-    (() => {
-      const slots: Array<[number, number]> = [];
-      for (let by = 2; by + 2 < height; by += 3) {
-        for (let bx = 2; bx + 2 < width; bx += 3) {
-          slots.push([bx, by]);
-        }
+
+  // Helper: generate lattice slots filtered to a terrain kind.
+  const buildingSlotsFor = (kind: 'rock' | 'grass'): Array<[number, number]> => {
+    const slots: Array<[number, number]> = [];
+    for (let by = 2; by + 2 < height; by += 3) {
+      for (let bx = 2; bx + 2 < width; bx += 3) {
+        if (world.terrain[by][bx] === kind) slots.push([bx, by]);
       }
-      return slots;
-    })(),
-    rand,
-  );
-  for (const [bx, by] of houseSlots) {
+    }
+    return slots;
+  };
+
+  // Collect rock slots first, then grass slots.
+  const rockBuildingSlots = shuffleWith(buildingSlotsFor('rock'), rand);
+  const grassBuildingSlots = shuffleWith(buildingSlotsFor('grass'), rand);
+  const allSlots = [...rockBuildingSlots, ...grassBuildingSlots];
+
+  for (const [bx, by] of allSlots) {
     if (world.buildings.length >= numBuildings) break;
     const type = BUILDING_TYPES[Math.floor(rand() * BUILDING_TYPES.length)];
     const r = buildingContent({ x: bx, y: by, type });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
-    if (!rectOnGrass(world, r)) continue;
+    if (!rectOnBuildingSite(world, r)) continue;
     world.buildings.push({ x: bx, y: by, type });
   }
 
@@ -542,6 +613,30 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     if (contentOverlaps(world, r)) continue;
     if (!rectOnGrass(world, r)) continue;
     world.trees.push({ x: tx, y: ty });
+  }
+
+  // Place some rock decoration sprites on the rock plateau.
+  const rockSlots = shuffleWith(
+    (() => {
+      const slots: Array<[number, number]> = [];
+      for (let ty = 0; ty < height; ty += 2) {
+        for (let tx = 0; tx < width; tx += 2) {
+          if (world.terrain[ty][tx] === 'rock') slots.push([tx, ty]);
+        }
+      }
+      return slots;
+    })(),
+    rand,
+  );
+  const numRockDeco = 3 + Math.floor(rand() * 4);
+  for (const [tx, ty] of rockSlots) {
+    if (world.deco.length >= numTrees + numRockDeco) break;
+    const r = decoContent({ x: tx, y: ty, variant: 1 });
+    if (!inBounds(r, width, height)) continue;
+    if (contentOverlaps(world, r)) continue;
+    if (!rectOnWalkable(world, r)) continue;
+    if (world.deco.some((o) => Math.max(Math.abs(o.x - tx), Math.abs(o.y - ty)) < 3)) continue;
+    world.deco.push({ x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) });
   }
 
   // Spawn on the most open connected area.
@@ -606,6 +701,19 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   world.buildings = world.buildings.filter((b) => {
     const s = buildingSolid(b);
     return baseReachable(s);
+  });
+
+  // Filter rock deco that is unreachable.
+  world.deco = world.deco.filter((d) => {
+    const r = decoContent(d);
+    const cx = Math.floor(r.x / CELL) + Math.floor(r.w / CELL / 2);
+    const cy = Math.floor((r.y + r.h) / CELL);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (reach.has(`${cx + dx},${cy + dy}`)) return true;
+      }
+    }
+    return false;
   });
 
   placeDeco(world, rand);

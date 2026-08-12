@@ -32,7 +32,7 @@ Deno.test('elevation tileset constants', () => {
 // ── Flat kinds get no elevation tile ─────────────────────────────────────────
 
 Deno.test('elevationTileIndex — flat terrain kinds get no elevation tile', () => {
-  const row: TerrainKind[] = ['sea', 'coast', 'beach', 'grass'];
+  const row: TerrainKind[] = ['sea', 'coast', 'beach', 'grass', 'rock'];
   for (const kind of row) {
     for (let tx = 0; tx < 16; tx++) {
       assertEquals(

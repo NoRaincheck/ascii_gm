@@ -153,7 +153,7 @@ export function getElevationTile(index: number): TileData | undefined {
 
 // ── Tile index selection ─────────────────────────────────────────────────────
 
-export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'stairs';
+export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'rock' | 'stairs';
 
 /**
  * Find the wall run that contains column `tx` in a terrain row, and return
@@ -177,14 +177,66 @@ export function wallRunInfo(terrainRow: TerrainKind[], tx: number): { start: num
   return { start, end, colInRun: tx - start };
 }
 
+import type { World } from '../lib/game.ts';
+import { terrainAt, EDGE_N, EDGE_S, EDGE_W, EDGE_E } from '../lib/game.ts';
+
+/**
+ * Compute the rock autotile edge mask for a rock tile.
+ *
+ * A border is drawn on each side where the rock meets a non-rock terrain
+ * (sea, coast, cliff, stairs). The mask bits are EDGE_N/S/W/E.
+ *
+ * @param world — the world containing terrain data
+ * @param tx — column index
+ * @param ty — row index
+ * @returns the edge mask
+ */
+export function rockEdgeMask(world: World, tx: number, ty: number): number {
+  let mask = 0;
+  const neighbors: Array<[number, number, number]> = [
+    [0, -1, EDGE_N],
+    [0, 1, EDGE_S],
+    [-1, 0, EDGE_W],
+    [1, 0, EDGE_E],
+  ];
+  for (const [dx, dy, bit] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    if (n !== 'rock') mask |= bit;
+  }
+  return mask;
+}
+
+/**
+ * Map a rock edge mask to the elevation tileset index.
+ *
+ * Rock tiles live in rows 0, 1, 2, 4 of the elevation tileset:
+ *   row 0 → N variants (indices 0-3)
+ *   row 1 → W/E variants (indices 4-7)
+ *   row 2 → S variants (indices 8-11)
+ *   row 4 → inner-corner variants (indices 16-19)
+ *
+ * @param mask — edge mask with EDGE_N/S/W/E bits
+ * @returns the elevation tile index
+ */
+export function rockTileIndex(mask: number): number {
+  const hasN = (mask & EDGE_N) !== 0;
+  const hasS = (mask & EDGE_S) !== 0;
+  const hasW = (mask & EDGE_W) !== 0;
+  const hasE = (mask & EDGE_E) !== 0;
+  const col = hasW ? (hasE ? 3 : 0) : hasE ? 2 : 1;
+  const row = hasN ? (hasS ? 3 : 0) : hasS ? 2 : 1;
+  // Row 3 in the formula maps to tileset row 4 (wall tiles are row 3)
+  const tileRow = row === 3 ? 4 : row;
+  return tileRow * COLS + col;
+}
+
 /**
  * Select the elevation tile for a given terrain tile.
  *
- * Only the cliff band uses elevation tiles:
- * - 'cliff' tiles render the cliff face, with position-aware variants
- *   (left / center / right / single) so the wall run looks natural
- * - 'stairs' tiles render the staircase at the climb point
- * All other terrain kinds get no elevation tile (-1); they are flat.
+ * The cliff band uses elevation tiles for the cliff face (wall tiles) and
+ * staircase (stairs tile). The rock plateau uses rock border tiles for
+ * autotiling. All other terrain kinds (sea, coast, beach, grass) get no
+ * elevation tile (-1); they are flat.
  *
  * @param kind — terrain type
  * @param terrainRow — the full terrain row for this y position
@@ -198,11 +250,31 @@ export function elevationTileIndex(kind: TerrainKind, terrainRow: TerrainKind[],
       if (!info) return -1;
       return wallTileIndex(info.end - info.start + 1, info.colInRun);
     }
+    case 'rock': {
+      // Rock tiles need the full world for neighbor lookups; terrainRow alone
+      // is insufficient because rock may border non-rock on any side.
+      // We handle this in the caller which has access to the world.
+      return -1; // placeholder — caller must use rockTileIndex + rockEdgeMask
+    }
     case 'stairs':
       return stairsTileIndex();
     default:
       return -1;
   }
+}
+
+/**
+ * Select the elevation tile for a rock terrain tile, using the world to
+ * inspect neighbors for autotiling.
+ *
+ * @param world — the world containing terrain data
+ * @param tx — column index
+ * @param ty — row index
+ * @returns the elevation tile index for this rock tile
+ */
+export function rockElevationTile(world: World, tx: number, ty: number): number {
+  const mask = rockEdgeMask(world, tx, ty);
+  return rockTileIndex(mask);
 }
 
 /**

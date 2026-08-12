@@ -140014,7 +140014,7 @@ var EDGE_W = 4;
 var EDGE_E = 8;
 function landTouchesWater(world, tx, ty) {
   const kind = terrainAt(world, tx, ty);
-  if (kind !== "beach" && kind !== "grass") return false;
+  if (kind !== "beach" && kind !== "grass" && kind !== "rock") return false;
   const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
   for (const [dx, dy] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
@@ -140032,7 +140032,10 @@ function flatEdgeMask(world, tx, ty, kind) {
   ];
   for (const [dx, dy, bit] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
-    const border = kind === "grass" ? n !== "grass" : n === "coast" || n === "sea";
+    const border = kind === "grass" ? n !== "grass" : kind === "beach" ? n === "coast" || n === "sea" : (
+      /* rock */
+      n === "sea"
+    );
     if (border) mask |= bit;
   }
   return mask;
@@ -140051,15 +140054,16 @@ function buildTerraced(world, rand) {
   const { width, height } = world;
   const seaMargin = 2;
   const seaTop = 2;
-  const beachH = 2;
-  const lowerGrassH = 2;
-  const midGrassH = 2;
+  const beachH = 3;
+  const midGrassH = 8;
+  const rockH = 2;
   const minGap = 10;
   const maxStairs = 3;
   const interiorStart = seaMargin;
   const interiorEnd = width - seaMargin - 1;
-  const lowerCliffRow = Math.max(seaTop, height - beachH - lowerGrassH - 1);
+  const lowerCliffRow = Math.max(seaTop, height - beachH - 1);
   const upperCliffRow = lowerCliffRow - midGrassH - 1;
+  const rockRows = upperCliffRow - seaTop;
   const touchesWater = (start, width2) => start === interiorStart || start + width2 - 1 === interiorEnd;
   const stairs = [];
   const bandStairs = (row) => stairs.filter((s) => s.row === row);
@@ -140110,13 +140114,18 @@ function buildTerraced(world, rand) {
       } else if (ty === lowerCliffRow || ty === upperCliffRow) {
         const isStairs = bandStairs(ty).some((s) => tx >= s.start && tx < s.start + s.width);
         kind = isStairs ? "stairs" : "cliff";
-      } else {
+      } else if (ty > lowerCliffRow) {
+        kind = "beach";
+      } else if (ty > upperCliffRow) {
         kind = "grass";
+      } else {
+        kind = "rock";
       }
       terrainRow.push(kind);
     }
     world.terrain.push(terrainRow);
   }
+  world.level = 2;
 }
 function standingTileKinds(world, px, py) {
   const tiles = [];
@@ -140166,6 +140175,32 @@ function rectOnGrass(world, r) {
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
       if (terrainAt(world, tx, ty) !== "grass") return false;
+    }
+  }
+  return true;
+}
+function rectOnBuildingSite(world, r) {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const kind = terrainAt(world, tx, ty);
+      if (kind !== "grass" && kind !== "rock") return false;
+    }
+  }
+  return true;
+}
+function rectOnWalkable(world, r) {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const kind = terrainAt(world, tx, ty);
+      if (kind !== "grass" && kind !== "beach" && kind !== "rock") return false;
     }
   }
   return true;
@@ -140256,29 +140291,30 @@ function generateWorld(seed, width = 16, height = 16) {
     deco: [],
     waterRocks: [],
     stairs: [],
-    player: { x: 0, y: 0, facing: "down" }
+    player: { x: 0, y: 0, facing: "down" },
+    level: 0
   };
   buildTerraced(world, rand);
   const numBuildings = 1 + Math.floor(rand() * 2);
-  const houseSlots = shuffleWith(
-    (() => {
-      const slots = [];
-      for (let by = 2; by + 2 < height; by += 3) {
-        for (let bx = 2; bx + 2 < width; bx += 3) {
-          slots.push([bx, by]);
-        }
+  const buildingSlotsFor = (kind) => {
+    const slots = [];
+    for (let by = 2; by + 2 < height; by += 3) {
+      for (let bx = 2; bx + 2 < width; bx += 3) {
+        if (world.terrain[by][bx] === kind) slots.push([bx, by]);
       }
-      return slots;
-    })(),
-    rand
-  );
-  for (const [bx, by] of houseSlots) {
+    }
+    return slots;
+  };
+  const rockBuildingSlots = shuffleWith(buildingSlotsFor("rock"), rand);
+  const grassBuildingSlots = shuffleWith(buildingSlotsFor("grass"), rand);
+  const allSlots = [...rockBuildingSlots, ...grassBuildingSlots];
+  for (const [bx, by] of allSlots) {
     if (world.buildings.length >= numBuildings) break;
     const type = BUILDING_TYPES[Math.floor(rand() * BUILDING_TYPES.length)];
     const r = buildingContent({ x: bx, y: by, type });
     if (!inBounds(r, width, height)) continue;
     if (contentOverlaps(world, r)) continue;
-    if (!rectOnGrass(world, r)) continue;
+    if (!rectOnBuildingSite(world, r)) continue;
     world.buildings.push({ x: bx, y: by, type });
   }
   const treeSlots = shuffleWith(
@@ -140301,6 +140337,28 @@ function generateWorld(seed, width = 16, height = 16) {
     if (contentOverlaps(world, r)) continue;
     if (!rectOnGrass(world, r)) continue;
     world.trees.push({ x: tx, y: ty });
+  }
+  const rockSlots = shuffleWith(
+    (() => {
+      const slots = [];
+      for (let ty = 0; ty < height; ty += 2) {
+        for (let tx = 0; tx < width; tx += 2) {
+          if (world.terrain[ty][tx] === "rock") slots.push([tx, ty]);
+        }
+      }
+      return slots;
+    })(),
+    rand
+  );
+  const numRockDeco = 3 + Math.floor(rand() * 4);
+  for (const [tx, ty] of rockSlots) {
+    if (world.deco.length >= numTrees + numRockDeco) break;
+    const r = decoContent({ x: tx, y: ty, variant: 1 });
+    if (!inBounds(r, width, height)) continue;
+    if (contentOverlaps(world, r)) continue;
+    if (!rectOnWalkable(world, r)) continue;
+    if (world.deco.some((o) => Math.max(Math.abs(o.x - tx), Math.abs(o.y - ty)) < 3)) continue;
+    world.deco.push({ x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) });
   }
   const totalCells = Math.floor(width * TILE / CELL) * Math.floor(height * TILE / CELL);
   let bestScore = -1;
@@ -140358,6 +140416,17 @@ function generateWorld(seed, width = 16, height = 16) {
     const s = buildingSolid(b);
     return baseReachable(s);
   });
+  world.deco = world.deco.filter((d) => {
+    const r = decoContent(d);
+    const cx = Math.floor(r.x / CELL) + Math.floor(r.w / CELL / 2);
+    const cy = Math.floor((r.y + r.h) / CELL);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (reach.has(`${cx + dx},${cy + dy}`)) return true;
+      }
+    }
+    return false;
+  });
   placeDeco(world, rand);
   placeWaterRocks(world, rand);
   return world;
@@ -140395,6 +140464,7 @@ function movePlayer(world, dx, dy, step) {
 }
 
 // lib/elevation_tileset.ts
+var COLS = 4;
 var WALL_LEFT_TILE = 12;
 var WALL_CENTER_TILE = 13;
 var WALL_RIGHT_TILE = 14;
@@ -140412,6 +140482,30 @@ function wallRunInfo(terrainRow, tx) {
   while (end < terrainRow.length - 1 && terrainRow[end + 1] === "cliff") end++;
   return { start, end, colInRun: tx - start };
 }
+function rockEdgeMask(world, tx, ty) {
+  let mask = 0;
+  const neighbors = [
+    [0, -1, EDGE_N],
+    [0, 1, EDGE_S],
+    [-1, 0, EDGE_W],
+    [1, 0, EDGE_E]
+  ];
+  for (const [dx, dy, bit] of neighbors) {
+    const n = terrainAt(world, tx + dx, ty + dy);
+    if (n !== "rock") mask |= bit;
+  }
+  return mask;
+}
+function rockTileIndex(mask) {
+  const hasN = (mask & EDGE_N) !== 0;
+  const hasS = (mask & EDGE_S) !== 0;
+  const hasW = (mask & EDGE_W) !== 0;
+  const hasE = (mask & EDGE_E) !== 0;
+  const col = hasW ? hasE ? 3 : 0 : hasE ? 2 : 1;
+  const row = hasN ? hasS ? 3 : 0 : hasS ? 2 : 1;
+  const tileRow = row === 3 ? 4 : row;
+  return tileRow * COLS + col;
+}
 function elevationTileIndex(kind, terrainRow, tx) {
   switch (kind) {
     case "cliff": {
@@ -140419,11 +140513,18 @@ function elevationTileIndex(kind, terrainRow, tx) {
       if (!info) return -1;
       return wallTileIndex(info.end - info.start + 1, info.colInRun);
     }
+    case "rock": {
+      return -1;
+    }
     case "stairs":
       return stairsTileIndex();
     default:
       return -1;
   }
+}
+function rockElevationTile(world, tx, ty) {
+  const mask = rockEdgeMask(world, tx, ty);
+  return rockTileIndex(mask);
 }
 function wallTileIndex(runWidth, colInRun) {
   if (runWidth <= 1) return WALL_SINGLE_TILE;
@@ -140574,6 +140675,8 @@ var GameScene = class extends import_phaser.default.Scene {
           const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
           const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, this.world.terrain[ty], tx);
           elevationLayer.putTileAt(tile, tx, ty);
+        } else if (kind === "rock") {
+          elevationLayer.putTileAt(rockElevationTile(this.world, tx, ty), tx, ty);
         } else if (kind === "beach" || kind === "grass") {
           const layer = kind === "beach" ? beachLayer : grassLayer;
           layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);

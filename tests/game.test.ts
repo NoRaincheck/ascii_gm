@@ -99,31 +99,34 @@ Deno.test('terraced world — world.stairs runs match the terrain', () => {
   }
 });
 
-Deno.test('terraced world — grass above, between, and below the cliff bands', () => {
+Deno.test('terraced world — three distinct terrain levels: rock, grass, beach', () => {
   const w = world();
   const bands = cliffBandRows(w);
   const upper = Math.min(...bands);
   const lower = Math.max(...bands);
+  // Top level (above upper cliff) → rock
   for (let ty = 2; ty < upper; ty++) {
     for (let tx = 2; tx < W - 2; tx++) {
-      assertEquals(w.terrain[ty][tx], 'grass', `plateau (${tx},${ty})`);
+      assertEquals(w.terrain[ty][tx], 'rock', `top plateau (${tx},${ty})`);
     }
   }
+  // Middle level (between cliff bands) → grass
   for (let ty = upper + 1; ty < lower; ty++) {
     for (let tx = 2; tx < W - 2; tx++) {
       assertEquals(w.terrain[ty][tx], 'grass', `mid terrace (${tx},${ty})`);
     }
   }
-  for (let ty = lower + 1; ty < H - 2; ty++) {
+  // Bottom level (below lower cliff) → beach
+  for (let ty = lower + 1; ty < H; ty++) {
     for (let tx = 2; tx < W - 2; tx++) {
-      assertEquals(w.terrain[ty][tx], 'grass', `lower ground (${tx},${ty})`);
+      assertEquals(w.terrain[ty][tx], 'beach', `lower ground (${tx},${ty})`);
     }
   }
 });
 
 Deno.test('terraced world — every land tile is reachable through the stairs', () => {
   const w = world();
-  const walkable = (k: string): boolean => k === 'grass' || k === 'beach' || k === 'stairs';
+  const walkable = (k: string): boolean => k === 'grass' || k === 'beach' || k === 'rock' || k === 'stairs';
   const seen = new Set<string>();
   const queue: Array<[number, number]> = [[2, H - 2]];
   seen.add('2,14');
