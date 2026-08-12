@@ -84,8 +84,9 @@ class GameScene extends Phaser.Scene {
 
     this.buildTerrain();
 
-    // Water foam animation: 8 frames of the 192x192 blob sheet (~10 fps).
-    // Registered before buildFoam() so the shoreline sprites can play it.
+    // Water foam animation: 8 frames of the 192×192 blob sheet (~10 fps).
+    // Each frame is a 3×3 grid of 64px tiles. Registered before buildFoam()
+    // so the shoreline sprites can play it.
     if (!this.anims.exists('foam')) {
       this.anims.create({
         key: 'foam',
@@ -200,14 +201,16 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  // Animated foam ripples along the coast. Each 192x192 frame is a foam blob
-  // centered on the frame; a sprite is centered on every land tile that touches
-  // water, so the opaque beach/grass tile drawn above (depth -7/-6) hides the
-  // blob's full center and only the outer foam strips show over the water as
-  // ripples. The foam is masked to the sea: the shore land tiles have transparent
-  // edge speckles in their art, and without the mask the blob body bleeds through
-  // them (white flecks on grass/beach, including edges facing the cliff band).
-  // Start frames are staggered per tile to avoid lockstep animation.
+  // Animated foam ripples along the coast. Each frame is a 3×3 grid of 64px
+  // tiles (192×192 total). The blob is centered on the frame with foam strips
+  // extending into the 4 orthogonal neighbor tiles (corners are empty). A sprite
+  // is centered on every land tile that touches water, so the opaque beach/grass
+  // tile drawn above (depth -7/-6) hides the blob's full center and only the
+  // outer foam strips show over the water as ripples. The foam is masked to the
+  // sea: the shore land tiles have transparent edge speckles in their art, and
+  // without the mask the blob body bleeds through them (white flecks on
+  // grass/beach, including edges facing the cliff band). Start frames are
+  // staggered per tile to avoid lockstep animation.
   private buildFoam() {
     const foamSprites: Phaser.GameObjects.Sprite[] = [];
     for (let ty = 0; ty < MAP_H; ty++) {
@@ -218,16 +221,20 @@ class GameScene extends Phaser.Scene {
         foamSprites.push(sprite);
       }
     }
+    // Foam sprites are 3×3 tiles (192×192) centered on the land tile. When
+    // placed on edge tiles they extend 96px beyond the map boundary. The mask
+    // must extend past the map edges to contain those sprite extents. Foam
+    // only appears where sprites are placed (tiles touching water), so this
+    // generous mask is safe and prevents clipping at map boundaries.
+    const PADDING = TILE * 2; // 128px margin on each side covers any sprite
     const maskGraphics = this.make.graphics({ add: false });
     maskGraphics.fillStyle(0xffffff);
-    for (let ty = 0; ty < MAP_H; ty++) {
-      for (let tx = 0; tx < MAP_W; tx++) {
-        const kind = this.world.terrain[ty][tx];
-        if (kind === 'sea' || kind === 'coast') {
-          maskGraphics.fillRect(tx * TILE, ty * TILE, TILE, TILE);
-        }
-      }
-    }
+    maskGraphics.fillRect(
+      -PADDING,
+      -PADDING,
+      MAP_W * TILE + PADDING * 2,
+      MAP_H * TILE + PADDING * 2,
+    );
     const mask = maskGraphics.createGeometryMask();
     foamSprites.forEach((sprite) => sprite.setMask(mask));
     foamSprites.forEach((sprite, i) => {

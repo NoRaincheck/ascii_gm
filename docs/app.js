@@ -140759,14 +140759,16 @@ var GameScene = class extends import_phaser.default.Scene {
       }
     }
   }
-  // Animated foam ripples along the coast. Each 192x192 frame is a foam blob
-  // centered on the frame; a sprite is centered on every land tile that touches
-  // water, so the opaque beach/grass tile drawn above (depth -7/-6) hides the
-  // blob's full center and only the outer foam strips show over the water as
-  // ripples. The foam is masked to the sea: the shore land tiles have transparent
-  // edge speckles in their art, and without the mask the blob body bleeds through
-  // them (white flecks on grass/beach, including edges facing the cliff band).
-  // Start frames are staggered per tile to avoid lockstep animation.
+  // Animated foam ripples along the coast. Each frame is a 3×3 grid of 64px
+  // tiles (192×192 total). The blob is centered on the frame with foam strips
+  // extending into the 4 orthogonal neighbor tiles (corners are empty). A sprite
+  // is centered on every land tile that touches water, so the opaque beach/grass
+  // tile drawn above (depth -7/-6) hides the blob's full center and only the
+  // outer foam strips show over the water as ripples. The foam is masked to the
+  // sea: the shore land tiles have transparent edge speckles in their art, and
+  // without the mask the blob body bleeds through them (white flecks on
+  // grass/beach, including edges facing the cliff band). Start frames are
+  // staggered per tile to avoid lockstep animation.
   buildFoam() {
     const foamSprites = [];
     for (let ty = 0; ty < MAP_H; ty++) {
@@ -140777,16 +140779,15 @@ var GameScene = class extends import_phaser.default.Scene {
         foamSprites.push(sprite);
       }
     }
+    const PADDING = TILE * 2;
     const maskGraphics = this.make.graphics({ add: false });
     maskGraphics.fillStyle(16777215);
-    for (let ty = 0; ty < MAP_H; ty++) {
-      for (let tx = 0; tx < MAP_W; tx++) {
-        const kind = this.world.terrain[ty][tx];
-        if (kind === "sea" || kind === "coast") {
-          maskGraphics.fillRect(tx * TILE, ty * TILE, TILE, TILE);
-        }
-      }
-    }
+    maskGraphics.fillRect(
+      -PADDING,
+      -PADDING,
+      MAP_W * TILE + PADDING * 2,
+      MAP_H * TILE + PADDING * 2
+    );
     const mask = maskGraphics.createGeometryMask();
     foamSprites.forEach((sprite) => sprite.setMask(mask));
     foamSprites.forEach((sprite, i) => {

@@ -20,7 +20,7 @@
  * Rendering order (bottom to top):
  *   1. Water    (depth -10) — background fill
  *   2. Elevation (depth -9) — cliff band (walls + stairs)
- *   3. Foam     (depth -8)  — animated shoreline ripples
+ *   3. Foam     (depth -8)  — animated shoreline ripples (3×3 grid of 64px tiles)
  *   4. Beach + Grass (depth -7/-6) — flat ground
  *
  * The elevation tiles are only used for the cliff band: the cliff face uses
