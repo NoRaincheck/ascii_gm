@@ -140764,11 +140764,15 @@ var GameScene = class extends import_phaser.default.Scene {
   // Animated foam ripples along the coast. Each frame is a 3×3 grid of 64px
   // tiles (192×192 total). The blob is centered on the frame with foam strips
   // extending into the 4 orthogonal neighbor tiles (corners are empty). A sprite
-  // is centered on every land tile that touches water. Foam is drawn at depth
-  // -10 (same as water, but created after so it sits on top of water tiles).
-  // Land tiles (elevation/grass/beach) are at higher depths so they naturally
-  // occlude the foam blob center; only the foam strips at tile edges show over
-  // water as ripples. No masking needed.
+  // is centered on every land tile that touches water. The opaque beach/grass
+  // tile drawn above (depth -7/-6) hides the blob's full center, and the foam
+  // is masked to the water so only the outer strips show over sea/coast as
+  // ripples — without the mask the blob body bleeds through the transparent
+  // edge speckles of shore tiles (white flecks on grass/beach/rock) and over
+  // the cliff band. The mask covers in-map sea/coast tiles plus a one-tile
+  // off-map border: the strips of edge land tiles ripple out over the ocean
+  // beyond the map bounds (e.g. the south strips of the bottom beach tiles).
+  // Start frames are staggered per tile to avoid lockstep animation.
   buildFoam() {
     const foamSprites = [];
     for (let ty = 0; ty < MAP_H; ty++) {
@@ -140789,6 +140793,11 @@ var GameScene = class extends import_phaser.default.Scene {
         }
       }
     }
+    const pad = TILE;
+    maskGraphics.fillRect(-pad, -pad, MAP_W * TILE + 2 * pad, pad);
+    maskGraphics.fillRect(-pad, MAP_H * TILE, MAP_W * TILE + 2 * pad, pad);
+    maskGraphics.fillRect(-pad, 0, pad, MAP_H * TILE);
+    maskGraphics.fillRect(MAP_W * TILE, 0, pad, MAP_H * TILE);
     const mask = maskGraphics.createGeometryMask();
     foamSprites.forEach((sprite) => sprite.setMask(mask));
     foamSprites.forEach((sprite, i) => {
