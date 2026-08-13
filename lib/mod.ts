@@ -2,7 +2,7 @@
 export { generateList, generateText } from './text_generator.ts';
 
 // Oracle data loading and generation data
-export { buildGenData, getOracles, loadOracles, setOracles } from './oracle_data.ts';
+export { buildGenData, getOracles, loadOracles, setOracles, PORTRAIT_TEMPLATE, LANDSCAPE_TEMPLATE } from './oracle_data.ts';
 export type { Layout, OracleEntry } from './oracle_data.ts';
 
 // Card generation (entry point)
@@ -48,3 +48,6 @@ export { createRng, getSeed, random, randomInt, setSeed, shuffle, shuffleWith } 
 // Deno CLI canvas helpers
 export type { CanvasAPI } from './canvas_loader.ts';
 export { loadSpritesheetDeno } from './canvas_loader.ts';
+
+// CLI argument parsing
+export { parseArgs, HELP_TEXT } from './cli_args.ts';

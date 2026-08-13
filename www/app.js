@@ -13,9 +13,9 @@ const modeToggle = document.getElementById('mode-toggle');
 const modeLabel = document.getElementById('mode-label');
 
 let currentCard = '';
+let cards = [];
 let imageMode = true;
 let spritesheetLoaded = false;
-let cards = []; // single { cardText, theme, layout } - only the latest card
 let game;
 
 async function init() {
@@ -26,28 +26,18 @@ async function init() {
   newCard();
   generateBtn.addEventListener('click', newCard);
   themeSelect.addEventListener('change', () => {
+    cards = cards.map((c) => ({ ...c, theme: themeSelect.value }));
     renderAllCards();
   });
   layoutSelect.addEventListener('change', newCard);
   modeToggle.addEventListener('click', toggleMode);
   document.addEventListener('keydown', handleKeyDown);
   updateLayout();
-  // Initial resize after first card render
-  requestAnimationFrame(() => {
-    const canvas = document.querySelector('.card-canvas');
-    if (canvas && game) {
-      game.resize(canvas.width, canvas.height);
-    }
-  });
+  requestAnimationFrame(resizeGame);
 }
 
 function updateLayout() {
-  const isLandscape = layoutSelect.value === 'landscape';
-  if (isLandscape) {
-    mainEl.classList.add('landscape');
-  } else {
-    mainEl.classList.remove('landscape');
-  }
+  mainEl.classList.toggle('landscape', layoutSelect.value === 'landscape');
 }
 
 async function loadOraclesJSON() {
@@ -64,7 +54,7 @@ async function loadSpritesheet() {
   const offscreen = document.createElement('canvas');
   offscreen.width = img.width;
   offscreen.height = img.height;
-  const octx = offscreen.getContext('2d');
+  const octx = offscreen.getContext('2d', { willReadFrequently: true });
   octx.drawImage(img, 0, 0);
   parseSpritesheet(img, octx);
   spritesheetLoaded = true;
@@ -76,36 +66,21 @@ function newCard() {
   renderAllCards();
   updateLayout();
   if (game) game.regenerate(hashString(currentCard));
-  // Resize game to match card dimensions
-  requestAnimationFrame(() => {
-    const canvas = document.querySelector('.card-canvas');
-    if (canvas && game) {
-      game.resize(canvas.width, canvas.height);
-    }
-  });
+  requestAnimationFrame(resizeGame);
 }
 
 function renderAllCards() {
-  // Clear existing card elements
   cardContainer.innerHTML = '';
   const grid = document.createElement('div');
   grid.className = 'card-grid';
   cardContainer.appendChild(grid);
-
-  for (const cardData of cards) {
+  for (const { cardText, theme, layout } of cards) {
     const canvas = document.createElement('canvas');
     canvas.className = 'card-canvas';
-    const ctx = canvas.getContext('2d');
-    renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode, cardData.layout);
+    renderCardToCanvas(canvas.getContext('2d'), cardText, theme, imageMode, layout);
     grid.appendChild(canvas);
   }
-  // Resize game to match card dimensions after render
-  requestAnimationFrame(() => {
-    const canvas = document.querySelector('.card-canvas');
-    if (canvas && game) {
-      game.resize(canvas.width, canvas.height);
-    }
-  });
+  requestAnimationFrame(resizeGame);
 }
 
 function toggleMode() {
@@ -113,6 +88,11 @@ function toggleMode() {
   modeLabel.textContent = imageMode ? 'Image Mode' : 'Canvas Mode';
   modeToggle.textContent = imageMode ? 'Switch to Canvas Mode' : 'Switch to Image Mode';
   renderAllCards();
+}
+
+function resizeGame() {
+  const canvas = document.querySelector('.card-canvas');
+  if (canvas && game) game.resize(canvas.width, canvas.height);
 }
 
 function handleKeyDown(e) {
@@ -138,10 +118,8 @@ function handleKeyDown(e) {
 }
 
 function cycleTheme() {
-  const themes = ['macchiato', 'latte'];
-  const currentIdx = themes.indexOf(themeSelect.value);
-  const nextIdx = themeSelect.value === 'macchiato' ? 1 : 0;
-  themeSelect.value = themes[nextIdx];
+  themeSelect.value = themeSelect.value === 'macchiato' ? 'latte' : 'macchiato';
+  cards = cards.map((c) => ({ ...c, theme: themeSelect.value }));
   renderAllCards();
 }
 

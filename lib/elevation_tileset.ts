@@ -1,85 +1,37 @@
 /**
  * Elevation tileset support for Tilemap_Elevation.png.
  *
- * The elevation tileset is a 256×512 px image (4×8 grid of 64×64 tiles = 32 tiles).
- *
- * Layout (row, column) — actual image tile indices:
- *   Row 0: [R NW ] [R N ] [R NE ] [R NWE ]              ← indices  0,  1,  2,  3
- *   Row 1: [R W ]  [R  ]  [R E ]  [R WE ]               ← indices  4,  5,  6,  7
- *   Row 2: [R WS]  [R S ]  [R SE]  [R WSE ]             ← indices  8,  9, 10, 11
- *   Row 3: [WALL_L] [WALL_C] [WALL_R] [WALL_S]           ← indices 12, 13, 14, 15
- *   Row 4: [R NWS] [R NS ] [R NES] [R NWES]             ← indices 16, 17, 18, 19
- *   Row 5: [Beach 4] [Beach 5] [EMPTY]   [EMPTY]         ← indices 20, 21, 22, 23
- *   Row 6: [EMPTY]   [EMPTY]   [EMPTY]   [EMPTY]         ← indices 24, 25, 26, 27
- *   Row 7: [BotElev 0][BotElev 1][BotElev 2][Stairs]     ← indices 28, 29, 30, 31
- *
- * Rock border tiles use cardinal directions to name their border edges:
- *   N=North(top)  E=East(right)  S=South(bottom)  W=West(left)
- *   e.g. tile 0 = "R NW" has borders on North and West sides.
- *
- * Rendering order (bottom to top):
- *   1. Water    (depth -10) — background fill
- *   2. Elevation (depth -9) — cliff band (walls + stairs)
- *   3. Foam     (depth -8)  — animated shoreline ripples (3×3 grid of 64px tiles)
- *   4. Beach + Grass (depth -7/-6) — flat ground
- *
- * The elevation tiles are only used for the cliff band: the cliff face uses
- * the wall tiles (row 3), and the climb point uses the stairs tile (31).
+ * 256×512 px image (4×8 grid of 64×64 tiles = 32 tiles).
+ * Rendering order: water(-10) → elevation(-9) → foam(-8) → beach(-7)/grass(-6)
  */
-
-// ── Constants ────────────────────────────────────────────────────────────────
 
 export const TILE_W = 64;
 export const TILE_H = 64;
 export const COLS = 4;
 export const ROWS = 8;
 
-// Rock border tiles live in rows 0, 1, 2, 4 (indices 0-11, 16-19)
-// Row 0: top-edge variants (N, NW, NE, NWE)
-export const ROCK_NW_TILE     = 0;  // row 0, col 0 — borders North, West
-export const ROCK_N_TILE      = 1;  // row 0, col 1 — border North
-export const ROCK_NE_TILE     = 2;  // row 0, col 2 — borders North, East
-export const ROCK_NWE_TILE    = 3;  // row 0, col 3 — borders North, West, East
-// Row 1: mid-edge variants (W, plain, E, WE)
-export const ROCK_W_TILE      = 4;  // row 1, col 0 — border West
-export const ROCK_TILE        = 5;  // row 1, col 1 — no borders
-export const ROCK_E_TILE      = 6;  // row 1, col 2 — border East
-export const ROCK_WE_TILE     = 7;  // row 1, col 3 — borders West, East
-// Row 2: bottom-edge variants (WS, S, SE, WSE)
-export const ROCK_WS_TILE     = 8;  // row 2, col 0 — borders West, South
-export const ROCK_S_TILE      = 9;  // row 2, col 1 — border South
-export const ROCK_SE_TILE     = 10; // row 2, col 2 — borders South, East
-export const ROCK_WSE_TILE    = 11; // row 2, col 3 — borders West, South, East
-// Row 4: inner-corner / three-side variants (NWS, NS, NES, NWES)
-export const ROCK_NWS_TILE    = 16; // row 4, col 0 — borders North, West, South
-export const ROCK_NS_TILE     = 17; // row 4, col 1 — borders North, South
-export const ROCK_NES_TILE    = 18; // row 4, col 2 — borders North, East, South
-export const ROCK_NWES_TILE   = 19; // row 4, col 3 — borders all four sides
+// Named tile constants — computed from tileset layout
+// Rock tiles: rows 0,1,2,4 (indices 0-11, 16-19)
+export const ROCK_NW_TILE = 0, ROCK_N_TILE = 1, ROCK_NE_TILE = 2, ROCK_NWE_TILE = 3;
+export const ROCK_W_TILE = 4, ROCK_TILE = 5, ROCK_E_TILE = 6, ROCK_WE_TILE = 7;
+export const ROCK_WS_TILE = 8, ROCK_S_TILE = 9, ROCK_SE_TILE = 10, ROCK_WSE_TILE = 11;
+export const ROCK_NWS_TILE = 16, ROCK_NS_TILE = 17, ROCK_NES_TILE = 18, ROCK_NWES_TILE = 19;
 
-// Wall tiles live in row 3, columns 0-3
-export const WALL_ROW = 3; // tileset row 3
-
-// Row 7 staircases (4 tiles of 64px each): left, center, right, single. The
-// left/center/right tiles share the same repeating stair motif, so they tile
-// seamlessly into a wide staircase: width 2 = left+right, width 3 =
-// left+center+right, width 1 = the single tile.
-export const WALL_LEFT_TILE = 12; // row 3, col 0
-export const WALL_CENTER_TILE = 13; // row 3, col 1
-export const WALL_RIGHT_TILE = 14; // row 3, col 2
-export const WALL_SINGLE_TILE = 15; // row 3, col 3
+// Wall tiles: row 3 (indices 12-15)
+export const WALL_LEFT_TILE = 12, WALL_CENTER_TILE = 13, WALL_RIGHT_TILE = 14, WALL_SINGLE_TILE = 15;
 export const WALL_TILE = WALL_SINGLE_TILE;
 
-export const STAIRS_LEFT_TILE = 28; // row 7, col 0
-export const STAIRS_CENTER_TILE = 29; // row 7, col 1
-export const STAIRS_RIGHT_TILE = 30; // row 7, col 2
-export const STAIRS_SINGLE_TILE = 31; // row 7, col 3
+// Stairs: row 7 (indices 28-31)
+export const STAIRS_LEFT_TILE = 28, STAIRS_CENTER_TILE = 29, STAIRS_RIGHT_TILE = 30, STAIRS_SINGLE_TILE = 31;
 export const STAIRS_TILE = STAIRS_SINGLE_TILE;
 
-/**
- * Convert a tileset row and column to a tile index.
- */
-function tileIndex(row: number, col: number): number {
-  return row * COLS + col;
+// Shared wall/stairs tile selector: width 1→single, else left/center/right
+function edgeTile(single: number, left: number, right: number, center: number,
+  runWidth: number, colInRun: number): number {
+  if (runWidth <= 1) return single;
+  if (colInRun <= 0) return left;
+  if (colInRun >= runWidth - 1) return right;
+  return center;
 }
 
 // ── Tileset data ─────────────────────────────────────────────────────────────
@@ -281,20 +233,14 @@ export function rockElevationTile(world: World, tx: number, ty: number): number 
  * Get the wall tile variant for a given column position within a wall run.
  * Wall tiles are in row 3: left(0), center(1), right(2), single(3).
  *
- * For runs of width 1: single.
- * For runs of width 2: left, right.
- * For runs of width 3: left, center, right.
- * For runs of width ≥4: left, center*, right — center tiles fill the middle.
+ * For runs of width 1: single. For width ≥2: left, center*, right.
  *
  * @param runWidth — total width of the wall run
  * @param colInRun — column within the wall run, 0-based from the run's left edge
  * @returns the wall tile index
  */
 export function wallTileIndex(runWidth: number, colInRun: number): number {
-  if (runWidth <= 1) return WALL_SINGLE_TILE;
-  if (colInRun <= 0) return WALL_LEFT_TILE;
-  if (colInRun >= runWidth - 1) return WALL_RIGHT_TILE;
-  return WALL_CENTER_TILE;
+  return edgeTile(WALL_SINGLE_TILE, WALL_LEFT_TILE, WALL_RIGHT_TILE, WALL_CENTER_TILE, runWidth, colInRun);
 }
 
 /**
@@ -316,8 +262,5 @@ export function stairsTileIndex(): number {
  * @returns the elevation tile index for that position
  */
 export function stairsTileVariant(runWidth: number, colInRun: number): number {
-  if (runWidth <= 1) return STAIRS_SINGLE_TILE;
-  if (runWidth === 2) return colInRun === 0 ? STAIRS_LEFT_TILE : STAIRS_RIGHT_TILE;
-  const variants = [STAIRS_LEFT_TILE, STAIRS_CENTER_TILE, STAIRS_RIGHT_TILE];
-  return variants[Math.min(Math.max(colInRun, 0), variants.length - 1)];
+  return edgeTile(STAIRS_SINGLE_TILE, STAIRS_LEFT_TILE, STAIRS_RIGHT_TILE, STAIRS_CENTER_TILE, runWidth, colInRun);
 }

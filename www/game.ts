@@ -218,22 +218,37 @@ class GameScene extends Phaser.Scene {
     this.markerFading = false;
   }
 
-  // Total distance still left to walk: from the current feet position through
-  // every remaining waypoint to the destination marker. Path waypoints are
-  // cell centers, so this is the true remaining route length (walls included).
+  // Total distance still left to walk along the route.
   private remainingPathLength(px: number, py: number): number {
     let total = 0;
-    let cx = px;
-    let cy = py;
+    let cx = px, cy = py;
     for (const wp of this.path) {
       total += Math.hypot(wp.px - cx, wp.py - cy);
-      cx = wp.px;
-      cy = wp.py;
+      cx = wp.px; cy = wp.py;
     }
-    if (this.targetMarker) {
-      total += Math.hypot(this.targetMarker.x - cx, this.targetMarker.y - cy);
-    }
+    if (this.targetMarker) total += Math.hypot(this.targetMarker.x - cx, this.targetMarker.y - cy);
     return total;
+  }
+
+  // Follow the next waypoint on the path. Returns true if still moving.
+  private followWaypoint(step: number): boolean {
+    if (!this.path || this.path.length === 0) return false;
+    const p = this.world.player;
+    let guard = 0;
+    while (this.path.length > 0 && guard++ < 64) {
+      const wp = this.path[0];
+      const ex = wp.px - p.x, ey = wp.py - p.y;
+      const dist = Math.hypot(ex, ey);
+      if (dist <= 0.5) { p.x = wp.px; p.y = wp.py; this.path.shift(); continue; }
+      const ok = movePlayer(this.world, ex / dist, ey / dist, Math.min(step, dist));
+      const done = Math.hypot(wp.px - p.x, wp.py - p.y);
+      if (done <= 4) { p.x = wp.px; p.y = wp.py; this.path.shift(); continue; }
+      if (!ok && dist < 16) { this.path.shift(); continue; }
+      if (!ok) { this.path = null; this.clearMarker(); return false; }
+      break;
+    }
+    if (this.path && this.path.length === 0) { this.path = null; this.clearMarker(); }
+    return this.path !== null;
   }
 
   private clearMarker() {
@@ -244,39 +259,32 @@ class GameScene extends Phaser.Scene {
     this.markerFading = false;
   }
 
-  // Layered tilemap, bottom to top: deep sea (water.png) → foam → rocks/elevation
-  // → grass → beach. 64px tiles, one game tile each, so the world grid lines up
-  // with collision/placement. The cliff band shows the wall tiles (with one stairs
-  // tile at the climb point); beach and grass tiles draw the flat ground.
-  // Sea/coast get no flat layer. Foam is below all land tiles so the land
-  // tiles naturally occlude the foam blob center; only the foam strips at tile
-  // edges show over water as ripples. No masking needed.
+  // Layered tilemap: water(-10) → elevation(-9) → foam(-8) → beach(-7)/grass(-6).
   private buildTerrain() {
     const map = this.make.tilemap({ width: MAP_W, height: MAP_H, tileWidth: TILE, tileHeight: TILE });
-    const waterTiles = map.addTilesetImage('water', 'water')!;
-    const elevationTiles = map.addTilesetImage('elevation', 'elevation')!;
-    const flatTiles = map.addTilesetImage('flat', 'flat')!;
-    map.createBlankLayer('water', waterTiles)!.fill(0).setDepth(-10);
-    const elevationLayer = map.createBlankLayer('elevation', elevationTiles)!.setDepth(-9);
-    const beachLayer = map.createBlankLayer('beach', flatTiles)!.setDepth(-7);
-    const grassLayer = map.createBlankLayer('grass', flatTiles)!.setDepth(-6);
+    const elevationLayer = map.createBlankLayer('elevation', map.addTilesetImage('elevation', 'elevation')!)!.setDepth(-9);
+    const beachLayer = map.createBlankLayer('beach', map.addTilesetImage('flat', 'flat')!)!.setDepth(-7);
+    const grassLayer = map.createBlankLayer('grass', map.addTilesetImage('flat', 'flat')!)!.setDepth(-6);
+    map.createBlankLayer('water', map.addTilesetImage('water', 'water')!)!.fill(0).setDepth(-10);
+
     for (let ty = 0; ty < MAP_H; ty++) {
+      const row = this.world.terrain[ty];
       for (let tx = 0; tx < MAP_W; tx++) {
-        const kind = this.world.terrain[ty][tx];
-        if (kind === 'cliff') {
-          elevationLayer.putTileAt(elevationTileIndex(kind, this.world.terrain[ty], tx), tx, ty);
-        } else if (kind === 'stairs') {
-          // Wide staircases tile the left/center/right motif; the single tile
-          // is used when a stairs tile isn't part of a wider run.
-          const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
-          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, this.world.terrain[ty], tx);
-          elevationLayer.putTileAt(tile, tx, ty);
-        } else if (kind === 'rock') {
-          // Rock plateau uses elevation tiles (rock border autotiling).
-          elevationLayer.putTileAt(rockElevationTile(this.world, tx, ty), tx, ty);
-        } else if (kind === 'beach' || kind === 'grass') {
-          const layer = kind === 'beach' ? beachLayer : grassLayer;
-          layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);
+        const kind = row[tx];
+        switch (kind) {
+          case 'cliff':
+            elevationLayer.putTileAt(elevationTileIndex(kind, row, tx), tx, ty); break;
+          case 'stairs': {
+            const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
+            elevationLayer.putTileAt(run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, row, tx), tx, ty);
+            break;
+          }
+          case 'rock':
+            elevationLayer.putTileAt(rockElevationTile(this.world, tx, ty), tx, ty); break;
+          case 'beach':
+            beachLayer.putTileAt(flatTileIndex('beach', flatEdgeMask(this.world, tx, ty, 'beach')), tx, ty); break;
+          case 'grass':
+            grassLayer.putTileAt(flatTileIndex('grass', flatEdgeMask(this.world, tx, ty, 'grass')), tx, ty); break;
         }
       }
     }
@@ -382,69 +390,16 @@ class GameScene extends Phaser.Scene {
       const len = Math.hypot(dx, dy);
       const step = (SPEED * Math.min(delta, 50)) / 1000;
       movePlayer(this.world, dx / len, dy / len, step);
-    } else if (this.path && this.path.length > 0) {
+    } else if (this.path) {
       // Fade out the marker once the unit has < 2 squares of path remaining.
-      // Measured along the route (not as the crow flies) so detours around
-      // walls/cliffs don't trigger an early or late fade.
       if (this.targetMarker && !this.markerFading) {
-        const remaining = this.remainingPathLength(p.x, p.y);
-        if (remaining < 2 * TILE) {
+        if (this.remainingPathLength(p.x, p.y) < 2 * TILE) {
           this.markerFading = true;
-          this.tweens.add({
-            targets: this.targetMarker,
-            alpha: 0,
-            duration: 300,
-            ease: 'Sine.In',
-          });
+          this.tweens.add({ targets: this.targetMarker, alpha: 0, duration: 300, ease: 'Sine.In' });
         }
       }
-      // Follow the waypoint path at the walk speed. Each waypoint is an open
-      // cell center. When one is reached we snap onto it and advance.
       const step = (SPEED * Math.min(delta, 50)) / 1000;
-      let guard = 0;
-      while (this.path.length > 0 && guard++ < 64) {
-        const wp = this.path[0];
-        const ex = wp.px - p.x;
-        const ey = wp.py - p.y;
-        const dist = Math.hypot(ex, ey);
-        if (dist <= 0.5) {
-          // Snapped exactly onto the waypoint center (guaranteed open) so the
-          // next leg starts clean — prevents float drift from wedging the body
-          // against narrow gaps like stair runs.
-          p.x = wp.px;
-          p.y = wp.py;
-          this.path.shift();
-          moving = true;
-          continue;
-        }
-        const ok = movePlayer(this.world, ex / dist, ey / dist, Math.min(step, dist));
-        moving = true;
-        const done = Math.hypot(wp.px - p.x, wp.py - p.y);
-        if (done <= 4) {
-          // Reached (or essentially reached) this waypoint — snap and advance.
-          p.x = wp.px;
-          p.y = wp.py;
-          this.path.shift();
-          continue;
-        }
-        if (!ok && dist < 16) {
-          // Collision-stopped right beside the waypoint; skip it to keep
-          // hugging the path rather than stalling forever.
-          this.path.shift();
-          continue;
-        }
-        if (!ok) {
-          // Blocked far from the waypoint — abandon rather than stall.
-          this.path = null;
-          this.clearMarker();
-          break;
-        }
-        break;
-      }
-      if (this.path && this.path.length === 0) {
-        this.path = null;
-        this.clearMarker();
-      }
+      if (this.followWaypoint(step)) moving = true;
     }
 
     const anim = this.player.anims.getName();

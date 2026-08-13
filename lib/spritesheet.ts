@@ -139,39 +139,27 @@ function renderImageMode(
   layout: Layout,
 ): void {
   const imageData = ctx.createImageData(ctx.canvas.width, ctx.canvas.height);
-  fillBg(imageData, bgColor);
+  imageData.data.fill(255, 3, imageData.data.length); // alpha
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    imageData.data[i] = bgColor[0];
+    imageData.data[i + 1] = bgColor[1];
+    imageData.data[i + 2] = bgColor[2];
+  }
 
   for (let li = 0; li < cardLines.length; li++) {
     const cardLine = cardLines[li];
     const templLine = templateLines[li] ?? '';
-
     for (let ci = 0; ci < cardLine.length; ci++) {
       const ch = cardLine[ci];
       const baseChar = templLine[ci] ?? ch;
-      const isHighlight = ch !== baseChar;
 
       const glyphIndex = CHAR_MAP[ch];
       if (glyphIndex === undefined || !glyphData || glyphIndex >= glyphData.length) continue;
 
       const glyph = glyphData[glyphIndex];
-
-      let fg: Rgb;
-      let bg: Rgb;
-
-      if (isHighlight) {
-        const fieldColor = getFieldColor(li, ci, cardLines, palette, theme, layout);
-        if (fieldColor) {
-          fg = highlightTextColor;
-          bg = fieldColor;
-        } else {
-          fg = textColor;
-          bg = bgColor;
-        }
-      } else {
-        fg = textColor;
-        bg = bgColor;
-      }
-
+      const fieldColor = ch === baseChar ? null : getFieldColor(li, ci, cardLines, palette, theme, layout);
+      const fg = fieldColor ? highlightTextColor : textColor;
+      const bg = fieldColor ? fieldColor : bgColor;
       const dx = ci * charWidth;
       const dy = li * charHeight;
 
@@ -180,17 +168,10 @@ function renderImageMode(
           const si = (py * charWidth + px) * 4;
           const di = ((dy + py) * ctx.canvas.width + (dx + px)) * 4;
           const glyphPixel = glyph.data[si];
-          if (glyphPixel > 127) {
-            imageData.data[di] = fg[0];
-            imageData.data[di + 1] = fg[1];
-            imageData.data[di + 2] = fg[2];
-            imageData.data[di + 3] = 255;
-          } else {
-            imageData.data[di] = bg[0];
-            imageData.data[di + 1] = bg[1];
-            imageData.data[di + 2] = bg[2];
-            imageData.data[di + 3] = 255;
-          }
+          imageData.data[di] = glyphPixel > 127 ? fg[0] : bg[0];
+          imageData.data[di + 1] = glyphPixel > 127 ? fg[1] : bg[1];
+          imageData.data[di + 2] = glyphPixel > 127 ? fg[2] : bg[2];
+          imageData.data[di + 3] = 255;
         }
       }
     }
@@ -222,39 +203,23 @@ function renderCanvasMode(
   for (let li = 0; li < cardLines.length; li++) {
     const cardLine = cardLines[li];
     const templLine = templateLines[li] ?? '';
-
     for (let ci = 0; ci < cardLine.length; ci++) {
       const ch = cardLine[ci];
       const baseChar = templLine[ci] ?? ch;
-      const isHighlight = ch !== baseChar;
 
       const x = ci * charWidth;
       const y = li * charHeight;
 
-      if (isHighlight) {
-        const fieldColor = getFieldColor(li, ci, cardLines, palette, theme, layout);
-        if (fieldColor) {
-          ctx.fillStyle = rgbToCss(fieldColor);
-          ctx.fillRect(x, y, charWidth, charHeight);
-          ctx.fillStyle = rgbToCss(highlightTextColor);
-        } else {
-          ctx.fillStyle = rgbToCss(textColor);
-        }
+      const fieldColor = ch === baseChar ? null : getFieldColor(li, ci, cardLines, palette, theme, layout);
+      if (fieldColor) {
+        ctx.fillStyle = rgbToCss(fieldColor);
+        ctx.fillRect(x, y, charWidth, charHeight);
+        ctx.fillStyle = rgbToCss(highlightTextColor);
       } else {
         ctx.fillStyle = rgbToCss(textColor);
       }
-
       ctx.fillText(ch, x, y);
     }
-  }
-}
-
-function fillBg(imageData: ImageData, bgColor: Rgb): void {
-  for (let i = 0; i < imageData.data.length; i += 4) {
-    imageData.data[i] = bgColor[0];
-    imageData.data[i + 1] = bgColor[1];
-    imageData.data[i + 2] = bgColor[2];
-    imageData.data[i + 3] = 255;
   }
 }
 

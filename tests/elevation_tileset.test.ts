@@ -84,34 +84,19 @@ Deno.test('wallRunInfo — works with cliff at map edges', () => {
 
 // ── Wall tile index ──────────────────────────────────────────────────────────
 
-Deno.test('wallTileIndex — width 1 is always single', () => {
+Deno.test('wallTileIndex — position-aware tiling', () => {
   assertEquals(wallTileIndex(1, 0), WALL_SINGLE_TILE);
-});
-
-Deno.test('wallTileIndex — width 2 is left, right', () => {
   assertEquals(wallTileIndex(2, 0), WALL_LEFT_TILE);
   assertEquals(wallTileIndex(2, 1), WALL_RIGHT_TILE);
-});
-
-Deno.test('wallTileIndex — width 3 is left, center, right', () => {
   assertEquals(wallTileIndex(3, 0), WALL_LEFT_TILE);
   assertEquals(wallTileIndex(3, 1), WALL_CENTER_TILE);
   assertEquals(wallTileIndex(3, 2), WALL_RIGHT_TILE);
-});
-
-Deno.test('wallTileIndex — width 4+ is left, center*, right', () => {
   assertEquals(wallTileIndex(4, 0), WALL_LEFT_TILE);
-  assertEquals(wallTileIndex(4, 1), WALL_CENTER_TILE);
-  assertEquals(wallTileIndex(4, 2), WALL_CENTER_TILE);
   assertEquals(wallTileIndex(4, 3), WALL_RIGHT_TILE);
-});
-
-Deno.test('wallTileIndex — width 5 is left, center*, right', () => {
   assertEquals(wallTileIndex(5, 0), WALL_LEFT_TILE);
-  assertEquals(wallTileIndex(5, 1), WALL_CENTER_TILE);
-  assertEquals(wallTileIndex(5, 2), WALL_CENTER_TILE);
-  assertEquals(wallTileIndex(5, 3), WALL_CENTER_TILE);
   assertEquals(wallTileIndex(5, 4), WALL_RIGHT_TILE);
+  for (let i = 1; i < 3; i++) assertEquals(wallTileIndex(4, i), WALL_CENTER_TILE);
+  for (let i = 1; i < 4; i++) assertEquals(wallTileIndex(5, i), WALL_CENTER_TILE);
 });
 
 // ── Stairs ───────────────────────────────────────────────────────────────────
@@ -127,16 +112,10 @@ Deno.test('stairsTileIndex — stairs are the last tile', () => {
   assertEquals(stairsTileIndex(), 31);
 });
 
-Deno.test('stairsTileVariant — single tile for a 1-wide run', () => {
+Deno.test('stairsTileVariant — position-aware tiling', () => {
   assertEquals(stairsTileVariant(1, 0), STAIRS_SINGLE_TILE);
-});
-
-Deno.test('stairsTileVariant — 2-wide run uses left + right', () => {
   assertEquals(stairsTileVariant(2, 0), STAIRS_LEFT_TILE);
   assertEquals(stairsTileVariant(2, 1), STAIRS_RIGHT_TILE);
-});
-
-Deno.test('stairsTileVariant — 3-wide run uses left + center + right', () => {
   assertEquals(stairsTileVariant(3, 0), STAIRS_LEFT_TILE);
   assertEquals(stairsTileVariant(3, 1), STAIRS_CENTER_TILE);
   assertEquals(stairsTileVariant(3, 2), STAIRS_RIGHT_TILE);

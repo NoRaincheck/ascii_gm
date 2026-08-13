@@ -36,6 +36,10 @@ export interface Player {
 
 export type TerrainKind = 'sea' | 'coast' | 'beach' | 'grass' | 'cliff' | 'rock' | 'stairs';
 
+const GRASS_KINDS = new Set<TerrainKind>(['grass']);
+const BUILDING_KINDS = new Set<TerrainKind>(['grass', 'rock']);
+const WALKABLE_KINDS = new Set<TerrainKind>(['grass', 'beach', 'rock']);
+
 export type RoomType = 'rock' | 'grass' | 'beach';
 
 export interface StairRun {
@@ -558,54 +562,33 @@ function contentOverlaps(world: World, r: Rect): boolean {
   return false;
 }
 
-// Landmarks only sit on the lawn — every tile under the content rect must be grass.
-// Trees only go on grass.
+// Landmark terrain checks — shared implementation with a Set of allowed kinds.
+function rectOnKinds(world: World, r: Rect, kinds: Set<TerrainKind>): boolean {
+  const x0 = Math.floor(r.x / TILE);
+  const y0 = Math.floor(r.y / TILE);
+  const x1 = Math.floor((r.x + r.w - 1) / TILE);
+  const y1 = Math.floor((r.y + r.h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      if (!kinds.has(terrainAt(world, tx, ty))) return false;
+    }
+  }
+  return true;
+}
+
+/** Trees only go on grass. */
 function rectOnGrass(world: World, r: Rect): boolean {
-  const x0 = Math.floor(r.x / TILE);
-  const y0 = Math.floor(r.y / TILE);
-  const x1 = Math.floor((r.x + r.w - 1) / TILE);
-  const y1 = Math.floor((r.y + r.h - 1) / TILE);
-  for (let ty = y0; ty <= y1; ty++) {
-    for (let tx = x0; tx <= x1; tx++) {
-      if (terrainAt(world, tx, ty) !== 'grass') return false;
-    }
-  }
-  return true;
+  return rectOnKinds(world, r, GRASS_KINDS);
 }
 
-/**
- * Check if a rect sits on walkable terrain suitable for buildings
- * (grass or rock, but not beach, sea, coast, or cliff).
- */
+/** Buildings sit on grass or rock. */
 function rectOnBuildingSite(world: World, r: Rect): boolean {
-  const x0 = Math.floor(r.x / TILE);
-  const y0 = Math.floor(r.y / TILE);
-  const x1 = Math.floor((r.x + r.w - 1) / TILE);
-  const y1 = Math.floor((r.y + r.h - 1) / TILE);
-  for (let ty = y0; ty <= y1; ty++) {
-    for (let tx = x0; tx <= x1; tx++) {
-      const kind = terrainAt(world, tx, ty);
-      if (kind !== 'grass' && kind !== 'rock') return false;
-    }
-  }
-  return true;
+  return rectOnKinds(world, r, BUILDING_KINDS);
 }
 
-/**
- * Check if a rect sits on any walkable terrain (grass, beach, or rock).
- */
+/** Walkable terrain for deco (grass, beach, rock). */
 function rectOnWalkable(world: World, r: Rect): boolean {
-  const x0 = Math.floor(r.x / TILE);
-  const y0 = Math.floor(r.y / TILE);
-  const x1 = Math.floor((r.x + r.w - 1) / TILE);
-  const y1 = Math.floor((r.y + r.h - 1) / TILE);
-  for (let ty = y0; ty <= y1; ty++) {
-    for (let tx = x0; tx <= x1; tx++) {
-      const kind = terrainAt(world, tx, ty);
-      if (kind !== 'grass' && kind !== 'beach' && kind !== 'rock') return false;
-    }
-  }
-  return true;
+  return rectOnKinds(world, r, WALKABLE_KINDS);
 }
 
 // Place animated water rocks on random sea/coast tiles. Each variant (1-4)
@@ -670,16 +653,15 @@ function placeDeco(world: World, rand: () => number): void {
 
 export const CELL = 24;
 
-function reachableAt(world: World, sx: number, sy: number): number {
+/** BFS flood-fill: return Set of reachable cell keys from (sx, sy). */
+function floodFill(world: World, sx: number, sy: number, isOpen: (cx: number, cy: number) => boolean): Set<string> {
   const cols = Math.floor((world.width * TILE) / CELL);
   const rows = Math.floor((world.height * TILE) / CELL);
-  const blocked = (cx: number, cy: number): boolean => !canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2);
   const startX = Math.floor(sx / CELL);
   const startY = Math.floor(sy / CELL);
-  if (blocked(startX, startY)) return 0;
+  if (!isOpen(startX, startY)) return new Set();
   const seen = new Set<string>([`${startX},${startY}`]);
   const queue: Array<[number, number]> = [[startX, startY]];
-  let count = 1;
   while (queue.length > 0) {
     const [cx, cy] = queue.shift()!;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -688,13 +670,16 @@ function reachableAt(world: World, sx: number, sy: number): number {
       if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
       const key = `${nx},${ny}`;
       if (seen.has(key)) continue;
-      if (blocked(nx, ny)) continue;
+      if (!isOpen(nx, ny)) continue;
       seen.add(key);
       queue.push([nx, ny]);
-      count++;
     }
   }
-  return count;
+  return seen;
+}
+
+function reachableAt(world: World, sx: number, sy: number): number {
+  return floodFill(world, sx, sy, (cx, cy) => !canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2)).size;
 }
 
 export function generateWorld(seed: number, width = 16, height = 16): World {
@@ -790,15 +775,16 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     world.deco.push({ x: tx, y: ty, variant: 1 + Math.floor(rand() * DECO_VARIANTS.length) });
   }
 
-  // Spawn on the most open connected area.
+  // Spawn on the most open connected area (pick the cell with highest reachability).
   const totalCells = Math.floor((width * TILE) / CELL) * Math.floor((height * TILE) / CELL);
   let bestScore = -1;
   let best: Player = { x: TILE, y: TILE, facing: 'down' };
+  const isOpen = (cx: number, cy: number) => canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2);
   for (let attempt = 0; attempt < 400; attempt++) {
     const px = TILE + Math.floor(rand() * (width - 2) * TILE / CELL) * CELL + CELL / 2;
     const py = TILE + Math.floor(rand() * (height - 2) * TILE / CELL) * CELL + CELL / 2;
-    if (!canOccupyAt(world, px, py)) continue;
-    const score = reachableAt(world, px, py);
+    if (!isOpen(Math.floor(px / CELL), Math.floor(py / CELL))) continue;
+    const score = floodFill(world, px, py, isOpen).size;
     if (score > bestScore) {
       bestScore = score;
       best = { x: px, y: py, facing: 'down' };
@@ -889,28 +875,8 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   ensureStairReachability();
 
   // Keep only landmarks whose base the character can actually reach.
-  const reach = new Set<string>();
-  (() => {
-    const cols = Math.floor((world.width * TILE) / CELL);
-    const rows = Math.floor((world.height * TILE) / CELL);
-    const startX = Math.floor(world.player.x / CELL);
-    const startY = Math.floor(world.player.y / CELL);
-    const queue: Array<[number, number]> = [[startX, startY]];
-    reach.add(`${startX},${startY}`);
-    while (queue.length > 0) {
-      const [cx, cy] = queue.shift()!;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = cx + dx;
-        const ny = cy + dy;
-        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
-        const key = `${nx},${ny}`;
-        if (reach.has(key)) continue;
-        if (!canOccupyAt(world, nx * CELL + CELL / 2, ny * CELL + CELL / 2)) continue;
-        reach.add(key);
-        queue.push([nx, ny]);
-      }
-    }
-  })();
+  const reach = floodFill(world, world.player.x, world.player.y, (cx, cy) =>
+    canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2));
   const baseReachable = (rect: Rect): boolean => {
     const cx = Math.floor(rect.x / CELL) + Math.floor(rect.w / CELL / 2);
     const cy = Math.floor((rect.y + rect.h) / CELL);

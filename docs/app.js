@@ -139275,8 +139275,8 @@ function getItems(key) {
   const filtered = oracleValues.filter((x) => !x.startsWith("Roll "));
   return shuffle(filtered);
 }
-function diceRange(num) {
-  return Array.from({ length: num }, (_, i) => String(i + 1));
+function diceRange(num, pad = 0, start = 1) {
+  return Array.from({ length: num }, (_, i) => String(i + start).padStart(pad, "0"));
 }
 function splitList(aList, size) {
   const chunkSize = Math.floor(aList.length / size);
@@ -139286,36 +139286,21 @@ function splitList(aList, size) {
   }
   return result;
 }
-function buildGenData(layout = "portrait") {
-  if (layout === "landscape") return buildLandscapeGenData();
-  return buildPortraitGenData();
-}
-function buildPortraitGenData() {
-  const genData = {};
-  genData["low_odds"] = ["{low_odd}{odds_modifier}"];
-  genData["even_odds"] = ["{even_odd}{odds_modifier}"];
-  genData["hi_odds"] = ["{hi_odd}{odds_modifier}"];
-  genData["odds_modifier"] = { "1": "?", "2-5": " ", "6": "!" };
-  genData["low_odd"] = { "1-4": "N", "5-6": "Y" };
-  genData["even_odd"] = { "1-3": "N", "4-6": "Y" };
-  genData["hi_odd"] = { "1-2": "N", "3-6": "Y" };
-  genData["d4"] = diceRange(4);
-  genData["d6"] = diceRange(6);
-  genData["d8"] = diceRange(8);
-  genData["d12"] = diceRange(12).map((x) => x.padStart(2, "0"));
-  genData["d20"] = diceRange(20).map((x) => x.padStart(2, "0"));
-  genData["d00"] = Array.from({ length: 100 }, (_, i) => String(i).padStart(2, "0"));
+function buildEventFields(genData) {
   genData["action"] = getItems("Action").filter((x) => x.length <= 6).map((x) => x.padEnd(6, " "));
   genData["detail"] = getItems("Location Descriptors").filter((x) => x.length <= 6).map((x) => x.padEnd(6, " "));
   genData["topic"] = getItems("Theme").filter((x) => x.length <= 6).map((x) => x.padEnd(6, " "));
-  genData["objective"] = [
+}
+function buildQuestFields(genData, padLen) {
+  const items = [
     "Remove a threat",
     "Learn the truth",
     "Recover valuable",
     "Escort to safety",
     "Restore broken",
     "Save ally peril"
-  ].map((x) => x.padEnd(17, " "));
+  ];
+  genData["objective"] = items.map((x) => x.padEnd(padLen, " "));
   genData["adversaries"] = [
     "Powerful entity",
     "Outlaws",
@@ -139323,7 +139308,9 @@ function buildPortraitGenData() {
     "Local inhabitant",
     "Enemy horde",
     "A villain"
-  ].map((x) => x.padEnd(17, " "));
+  ].map((x) => x.padEnd(padLen, " "));
+}
+function buildFocus(genData, padLen) {
   const actionFocus = [
     "Seek",
     "Oppose",
@@ -139354,148 +139341,121 @@ function buildPortraitGenData() {
     "A Faction",
     "The PCs"
   ];
-  const shuffledActions = shuffle(actionFocus);
-  const shuffledTopics = shuffle(topicFocus);
-  genData["focus"] = shuffledActions.map((a, i) => `${a}, ${shuffledTopics[i]}`).filter((x) => x.length <= 17).map((x) => x.padEnd(17, " "));
+  genData["focus"] = shuffle(actionFocus).map((a, i) => `${a}, ${shuffle(topicFocus)[i]}`).filter((x) => x.length <= padLen).map((x) => x.padEnd(padLen, " "));
+}
+function buildName(genData, padLen) {
   const names = getItems("Ironlander Names");
-  const nameChunks = splitList(names, 3);
-  const zippedNames = [];
-  for (let i = 0; i < nameChunks[0]?.length; i++) {
-    zippedNames.push(nameChunks.map((chunk) => chunk[i]).join(", "));
-  }
-  genData["name"] = zippedNames.filter((x) => x.length <= 17).map((x) => x.padEnd(17, " "));
+  const chunks = splitList(names, 3);
+  genData["name"] = Array.from(
+    { length: chunks[0]?.length ?? 0 },
+    (_, i) => chunks.map((c) => c[i]).join(", ")
+  ).filter((x) => x.length <= padLen).map((x) => x.padEnd(padLen, " "));
+}
+function buildJob(genData, padLen) {
   const roles = getItems("NPC Role");
   const descriptors = getItems("NPC Descriptors");
-  genData["job"] = roles.map((r, i) => `${r}, ${descriptors[i % descriptors.length]}`).filter((x) => x.length <= 17).map((x) => x.padEnd(17, " "));
-  genData["goal"] = getItems("Goals").filter((x) => x.length <= 17).map((x) => x.padEnd(17, " "));
-  genData["virtue"] = [
-    "Ambitious",
-    "Courageous",
-    "Disciplined",
-    "Honorable",
-    "Serene",
-    "Merciful",
-    "Humble",
-    "Tolerant",
-    "Gregarious",
-    "Cautious"
-  ].map((x) => x.padEnd(17, " "));
-  genData["vice"] = [
-    "Aggressive",
-    "Bitter",
-    "Craven",
-    "Deceitful",
-    "Greedy",
-    "Vengeful",
-    "Lazy",
-    "Nervous",
-    "Rude",
-    "Vain"
-  ].map((x) => x.padEnd(17, " "));
-  genData["card"] = [
-    [
-      "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510",
-      "\u2502low:{low_odds}  d4 {d4}  d12 {d12}\u2502",
-      "\u251C\u2500\u2500\u2500:{even_odds}  d6 {d6}  d20 {d20}\u2502",
-      "\u2502hi :{hi_odds}  d8 {d8}  d00 {d00}\u2502",
-      "\u2502                    \u2502",
-      "\u2502{action} {detail} {topic}\u2502",
-      "\u2502                    \u2502",
-      "\u2502OB:{objective}\u2502",
-      "\u2502AD:{adversaries}\u2502",
-      "\u2502EV:{focus}\u2502",
-      "\u2502                    \u2502",
-      "\u2502NM:{name}\u2502",
-      "\u2502JB:{job}\u2502",
-      "\u2502GL:{goal}\u2502",
-      "\u2502                    \u2502",
-      "\u2502VT:{virtue}\u2502",
-      "\u2502VC:{vice}\u2502",
-      "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"
-    ].join("\n")
-  ];
-  return genData;
+  genData["job"] = roles.map((r, i) => `${r}, ${descriptors[i % descriptors.length]}`).filter((x) => x.length <= padLen).map((x) => x.padEnd(padLen, " "));
 }
-function buildLandscapeGenData() {
+function buildGoal(genData, padLen) {
+  genData["goal"] = getItems("Goals").filter((x) => x.length <= padLen).map((x) => x.padEnd(padLen, " "));
+}
+var PORTRAIT_TEMPLATE = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502low:{low_odds}  d4 {d4}  d12 {d12}\u2502\n\u251C\u2500\u2500\u2500:{even_odds}  d6 {d6}  d20 {d20}\u2502\n\u2502hi :{hi_odds}  d8 {d8}  d00 {d00}\u2502\n\u2502                    \u2502\n\u2502{action} {detail} {topic}\u2502\n\u2502                    \u2502\n\u2502OB:{objective}\u2502\n\u2502AD:{adversaries}\u2502\n\u2502EV:{focus}\u2502\n\u2502                    \u2502\n\u2502NM:{name}\u2502\n\u2502JB:{job}\u2502\n\u2502GL:{goal}\u2502\n\u2502                    \u2502\n\u2502VT:{virtue}\u2502\n\u2502VC:{vice}\u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
+var LANDSCAPE_TEMPLATE = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 D4 :{d4} D6 :{d6} D8 :{d8} D10:{d10}\u2502\n\u2502  D12 :{d12} D20 :{d20} D100:{d100}  \u2502\n\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n\u2502EVT:  {action}  {detail}  {topic}\u2502\n\u2502QST:  {objective}\u2502\n\u2502FOE:  {adversaries}\u2502\n\u2502NAME: {name}   JOB: {job} \u2502\n\u2502VIRT: {virtue}   VICE: {vice} \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
+function buildGenData(layout = "portrait") {
   const genData = {};
-  genData["d4"] = diceRange(4).map((x) => x.padStart(2, "0"));
-  genData["d6"] = diceRange(6).map((x) => x.padStart(2, "0"));
-  genData["d8"] = diceRange(8).map((x) => x.padStart(2, "0"));
-  genData["d10"] = diceRange(10).map((x) => x.padStart(2, "0"));
-  genData["d12"] = diceRange(12).map((x) => x.padStart(2, "0"));
-  genData["d20"] = diceRange(20).map((x) => x.padStart(2, "0"));
-  genData["d100"] = Array.from({ length: 100 }, (_, i) => String(i + 1).padStart(3, " "));
-  genData["action"] = getItems("Action").filter((x) => x.length <= 6).map((x) => x.padEnd(6, " "));
-  genData["detail"] = getItems("Location Descriptors").filter((x) => x.length <= 6).map((x) => x.padEnd(6, " "));
-  genData["topic"] = getItems("Theme").filter((x) => x.length <= 6).map((x) => x.padEnd(6, " "));
-  genData["objective"] = [
-    "Remove a threat",
-    "Learn the truth",
-    "Recover valuable",
-    "Escort to safety",
-    "Restore broken",
-    "Save ally peril"
-  ].map((x) => x.padEnd(22, " "));
-  genData["adversaries"] = [
-    "Powerful entity",
-    "Outlaws",
-    "Guardians",
-    "Local inhabitant",
-    "Enemy horde",
-    "A villain"
-  ].map((x) => x.padEnd(22, " "));
-  genData["name"] = getItems("Ironlander Names").filter((x) => x.length <= 6).map((x) => x.padEnd(6, " "));
-  genData["job"] = getItems("NPC Role").filter((x) => x.length <= 7).map((x) => x.padEnd(7, " "));
-  genData["virtue"] = [
-    "Honest",
-    "Loyal",
-    "Brave",
-    "Calm",
-    "Wise",
-    "Bold",
-    "Just",
-    "Serene",
-    "Humble",
-    "Kind",
-    "Fierce",
-    "Quick",
-    "Clever",
-    "Noble",
-    "Steady",
-    "Keen"
-  ].map((x) => x.padEnd(6, " "));
-  genData["vice"] = [
-    "Greedy",
-    "Lazy",
-    "Rude",
-    "Vain",
-    "Bitter",
-    "Craven",
-    "Coward",
-    "Proud",
-    "Harsh",
-    "Moody",
-    "Cruel",
-    "Fickle",
-    "Sly",
-    "Grim",
-    "Wild",
-    "Mean"
-  ].map((x) => x.padEnd(6, " "));
-  genData["card"] = [
-    [
-      "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510",
-      "\u2502 D4 :{d4} D6 :{d6} D8 :{d8} D10:{d10}\u2502",
-      "\u2502  D12 :{d12} D20 :{d20} D100:{d100}  \u2502",
-      "\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524",
-      "\u2502EVT:  {action}  {detail}  {topic}\u2502",
-      "\u2502QST:  {objective}\u2502",
-      "\u2502FOE:  {adversaries}\u2502",
-      "\u2502NAME: {name}   JOB: {job} \u2502",
-      "\u2502VIRT: {virtue}   VICE: {vice} \u2502",
-      "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"
-    ].join("\n")
-  ];
+  buildEventFields(genData);
+  buildQuestFields(genData, layout === "portrait" ? 17 : 22);
+  if (layout === "portrait") {
+    genData["low_odds"] = ["{low_odd}{odds_modifier}"];
+    genData["even_odds"] = ["{even_odd}{odds_modifier}"];
+    genData["hi_odds"] = ["{hi_odd}{odds_modifier}"];
+    genData["odds_modifier"] = { "1": "?", "2-5": " ", "6": "!" };
+    genData["low_odd"] = { "1-4": "N", "5-6": "Y" };
+    genData["even_odd"] = { "1-3": "N", "4-6": "Y" };
+    genData["hi_odd"] = { "1-2": "N", "3-6": "Y" };
+    genData["d4"] = diceRange(4);
+    genData["d6"] = diceRange(6);
+    genData["d8"] = diceRange(8);
+    genData["d12"] = diceRange(12, 2);
+    genData["d20"] = diceRange(20, 2);
+    genData["d00"] = diceRange(100, 2, 0);
+    buildFocus(genData, 17);
+    buildName(genData, 17);
+    buildJob(genData, 17);
+    buildGoal(genData, 17);
+    genData["virtue"] = [
+      "Ambitious",
+      "Courageous",
+      "Disciplined",
+      "Honorable",
+      "Serene",
+      "Merciful",
+      "Humble",
+      "Tolerant",
+      "Gregarious",
+      "Cautious"
+    ].map((x) => x.padEnd(17, " "));
+    genData["vice"] = [
+      "Aggressive",
+      "Bitter",
+      "Craven",
+      "Deceitful",
+      "Greedy",
+      "Vengeful",
+      "Lazy",
+      "Nervous",
+      "Rude",
+      "Vain"
+    ].map((x) => x.padEnd(17, " "));
+    genData["card"] = [PORTRAIT_TEMPLATE];
+  } else {
+    genData["d4"] = diceRange(4, 2);
+    genData["d6"] = diceRange(6, 2);
+    genData["d8"] = diceRange(8, 2);
+    genData["d10"] = diceRange(10, 2);
+    genData["d12"] = diceRange(12, 2);
+    genData["d20"] = diceRange(20, 2);
+    genData["d100"] = diceRange(100, 3, 1);
+    buildName(genData, 6);
+    buildJob(genData, 7);
+    genData["virtue"] = [
+      "Honest",
+      "Loyal",
+      "Brave",
+      "Calm",
+      "Wise",
+      "Bold",
+      "Just",
+      "Serene",
+      "Humble",
+      "Kind",
+      "Fierce",
+      "Quick",
+      "Clever",
+      "Noble",
+      "Steady",
+      "Keen"
+    ].map((x) => x.padEnd(6, " "));
+    genData["vice"] = [
+      "Greedy",
+      "Lazy",
+      "Rude",
+      "Vain",
+      "Bitter",
+      "Craven",
+      "Coward",
+      "Proud",
+      "Harsh",
+      "Moody",
+      "Cruel",
+      "Fickle",
+      "Sly",
+      "Grim",
+      "Wild",
+      "Mean"
+    ].map((x) => x.padEnd(6, " "));
+    genData["card"] = [LANDSCAPE_TEMPLATE];
+  }
   return genData;
 }
 
@@ -139627,50 +139587,6 @@ var LANDSCAPE_FIELD_POSITIONS = [
   [8, 7, 6, "virtue"],
   [8, 22, 6, "vice"]
 ];
-function getFieldPositions(layout) {
-  return layout === "landscape" ? LANDSCAPE_FIELD_POSITIONS : FIELD_POSITIONS;
-}
-function getFieldCategory(layout) {
-  return layout === "landscape" ? LANDSCAPE_FIELD_CATEGORY : FIELD_CATEGORY;
-}
-function buildPositionMap(positions) {
-  const map = /* @__PURE__ */ new Map();
-  for (const [line, col, length, fieldName] of positions) {
-    for (let i = 0; i < length; i++) {
-      map.set(`${line},${col + i}`, fieldName);
-    }
-  }
-  return map;
-}
-var POSITION_MAP = buildPositionMap(FIELD_POSITIONS);
-var POSITION_MAPS = /* @__PURE__ */ new Map();
-function getPositionMap(layout) {
-  if (layout === "portrait") return POSITION_MAP;
-  if (!POSITION_MAPS.has(layout)) {
-    POSITION_MAPS.set(layout, buildPositionMap(getFieldPositions(layout)));
-  }
-  return POSITION_MAPS.get(layout);
-}
-function buildYesnoPrimaries(positions, category) {
-  const primaries = /* @__PURE__ */ new Map();
-  for (const [line, col, length, fieldName] of positions) {
-    if (category[fieldName] === "yesno") {
-      for (let i = 0; i < length; i++) {
-        primaries.set(`${line},${col + i}`, [line, col]);
-      }
-    }
-  }
-  return primaries;
-}
-var YESNO_PRIMARIES = buildYesnoPrimaries(FIELD_POSITIONS, FIELD_CATEGORY);
-var YESNO_PRIMARIES_MAPS = /* @__PURE__ */ new Map();
-function getYesnoPrimaries(layout) {
-  if (layout === "portrait") return YESNO_PRIMARIES;
-  if (!YESNO_PRIMARIES_MAPS.has(layout)) {
-    YESNO_PRIMARIES_MAPS.set(layout, buildYesnoPrimaries(getFieldPositions(layout), getFieldCategory(layout)));
-  }
-  return YESNO_PRIMARIES_MAPS.get(layout);
-}
 var DICE_MAX = {
   d4: 4,
   d6: 6,
@@ -139681,18 +139597,46 @@ var DICE_MAX = {
   d00: 99,
   d100: 100
 };
-var DICE_SPANS = /* @__PURE__ */ new Map();
-function getDiceSpans(layout) {
-  if (!DICE_SPANS.has(layout)) {
-    const map = /* @__PURE__ */ new Map();
-    for (const [line, col, length, fieldName] of getFieldPositions(layout)) {
-      if (DICE_MAX[fieldName] !== void 0) {
-        map.set(fieldName, [line, col, length]);
+var LAYOUT_CACHE = /* @__PURE__ */ new Map();
+function getLayoutData(layout) {
+  if (!LAYOUT_CACHE.has(layout)) {
+    const positions = layout === "landscape" ? LANDSCAPE_FIELD_POSITIONS : FIELD_POSITIONS;
+    const category = layout === "landscape" ? LANDSCAPE_FIELD_CATEGORY : FIELD_CATEGORY;
+    const posMap = /* @__PURE__ */ new Map();
+    for (const [line, col, length, fieldName] of positions) {
+      for (let i = 0; i < length; i++) {
+        posMap.set(`${line},${col + i}`, fieldName);
       }
     }
-    DICE_SPANS.set(layout, map);
+    const yesnoPrimaries = /* @__PURE__ */ new Map();
+    for (const [line, col, length, fieldName] of positions) {
+      if (category[fieldName] === "yesno") {
+        for (let i = 0; i < length; i++) {
+          yesnoPrimaries.set(`${line},${col + i}`, [line, col]);
+        }
+      }
+    }
+    const diceSpans = /* @__PURE__ */ new Map();
+    for (const [line, col, length, fieldName] of positions) {
+      if (DICE_MAX[fieldName] !== void 0) {
+        diceSpans.set(fieldName, [line, col, length]);
+      }
+    }
+    LAYOUT_CACHE.set(layout, { posMap, yesnoPrimaries, diceSpans, fieldCategory: category });
   }
-  return DICE_SPANS.get(layout);
+  return LAYOUT_CACHE.get(layout);
+}
+function getPositionMap(layout) {
+  return getLayoutData(layout).posMap;
+}
+function getYesnoPrimaries(layout) {
+  return getLayoutData(layout).yesnoPrimaries;
+}
+function getFieldCategory(layout) {
+  return getLayoutData(layout).fieldCategory;
+}
+function getDiceSpans(layout) {
+  return getLayoutData(layout).diceSpans;
 }
 function resolveDiceCategory(fieldName, cardLines, layout) {
   const span = getDiceSpans(layout).get(fieldName);
@@ -139725,10 +139669,10 @@ function getFieldColor(lineIdx, colIdx, cardLines, palette, theme = "macchiato",
   const cat = resolveCategory(lineIdx, colIdx, fieldName, cardLines, layout);
   return palette[cat] ?? palette.neutral;
 }
-var TEMPLATE_TEXT = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502low:@@  d4 @  d12 @@\u2502\n\u251C\u2500\u2500\u2500:@@  d6 @  d20 @@\u2502\n\u2502hi :@@  d8 @  d00 @@\u2502\n\u2502                    \u2502\n\u2502@@@@@@ @@@@@@ @@@@@@\u2502\n\u2502                    \u2502\n\u2502OB:@@@@@@@@@@@@@@@@@\u2502\n\u2502AD:@@@@@@@@@@@@@@@@@\u2502\n\u2502EV:@@@@@@@@@@@@@@@@@\u2502\n\u2502                    \u2502\n\u2502NM:@@@@@@@@@@@@@@@@@\u2502\n\u2502JB:@@@@@@@@@@@@@@@@@\u2502\n\u2502GL:@@@@@@@@@@@@@@@@@\u2502\n\u2502                    \u2502\n\u2502VT:@@@@@@@@@@@@@@@@@\u2502\n\u2502VC:@@@@@@@@@@@@@@@@@\u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
-var LANDSCAPE_TEMPLATE_TEXT = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 D4 :@@ D6 :@@ D8 :@@ D10:@@\u2502\n\u2502  D12 :@@ D20 :@@ D100:@@@  \u2502\n\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n\u2502EVT:  @@@@@@  @@@@@@  @@@@@@\u2502\n\u2502QST:  @@@@@@@@@@@@@@@@@@@@@@\u2502\n\u2502FOE:  @@@@@@@@@@@@@@@@@@@@@@\u2502\n\u2502NAME: @@@@@@   JOB: @@@@@@@ \u2502\n\u2502VIRT: @@@@@@   VICE: @@@@@@ \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
+var PORTRAIT_PLACEHOLDER = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502low:@@  d4 @  d12 @@\u2502\n\u251C\u2500\u2500\u2500:@@  d6 @  d20 @@\u2502\n\u2502hi :@@  d8 @  d00 @@\u2502\n\u2502                    \u2502\n\u2502@@@@@@ @@@@@@ @@@@@@\u2502\n\u2502                    \u2502\n\u2502OB:@@@@@@@@@@@@@@@@@\u2502\n\u2502AD:@@@@@@@@@@@@@@@@@\u2502\n\u2502EV:@@@@@@@@@@@@@@@@@\u2502\n\u2502                    \u2502\n\u2502NM:@@@@@@@@@@@@@@@@@\u2502\n\u2502JB:@@@@@@@@@@@@@@@@@\u2502\n\u2502GL:@@@@@@@@@@@@@@@@@\u2502\n\u2502                    \u2502\n\u2502VT:@@@@@@@@@@@@@@@@@\u2502\n\u2502VC:@@@@@@@@@@@@@@@@@\u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
+var LANDSCAPE_PLACEHOLDER = "\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502 D4 :@@ D6 :@@ D8 :@@ D10:@@\u2502\n\u2502  D12 :@@ D20 :@@ D100:@@@  \u2502\n\u251C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n\u2502EVT:  @@@@@@  @@@@@@  @@@@@@\u2502\n\u2502QST:  @@@@@@@@@@@@@@@@@@@@@@\u2502\n\u2502FOE:  @@@@@@@@@@@@@@@@@@@@@@\u2502\n\u2502NAME: @@@@@@   JOB: @@@@@@@ \u2502\n\u2502VIRT: @@@@@@   VICE: @@@@@@ \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518";
 function getTemplateText(layout = "portrait") {
-  return layout === "landscape" ? LANDSCAPE_TEMPLATE_TEXT : TEMPLATE_TEXT;
+  return layout === "landscape" ? LANDSCAPE_PLACEHOLDER : PORTRAIT_PLACEHOLDER;
 }
 
 // lib/spritesheet.ts
@@ -139829,32 +139773,24 @@ function renderCardToCanvas(ctx, cardText, theme = "macchiato", imageMode2 = tru
 }
 function renderImageMode(ctx, cardLines, templateLines, palette, textColor, bgColor, highlightTextColor, charWidth, charHeight, theme, layout) {
   const imageData = ctx.createImageData(ctx.canvas.width, ctx.canvas.height);
-  fillBg(imageData, bgColor);
+  imageData.data.fill(255, 3, imageData.data.length);
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    imageData.data[i] = bgColor[0];
+    imageData.data[i + 1] = bgColor[1];
+    imageData.data[i + 2] = bgColor[2];
+  }
   for (let li = 0; li < cardLines.length; li++) {
     const cardLine = cardLines[li];
     const templLine = templateLines[li] ?? "";
     for (let ci = 0; ci < cardLine.length; ci++) {
       const ch = cardLine[ci];
       const baseChar = templLine[ci] ?? ch;
-      const isHighlight = ch !== baseChar;
       const glyphIndex = CHAR_MAP[ch];
       if (glyphIndex === void 0 || !glyphData || glyphIndex >= glyphData.length) continue;
       const glyph = glyphData[glyphIndex];
-      let fg;
-      let bg;
-      if (isHighlight) {
-        const fieldColor = getFieldColor(li, ci, cardLines, palette, theme, layout);
-        if (fieldColor) {
-          fg = highlightTextColor;
-          bg = fieldColor;
-        } else {
-          fg = textColor;
-          bg = bgColor;
-        }
-      } else {
-        fg = textColor;
-        bg = bgColor;
-      }
+      const fieldColor = ch === baseChar ? null : getFieldColor(li, ci, cardLines, palette, theme, layout);
+      const fg = fieldColor ? highlightTextColor : textColor;
+      const bg = fieldColor ? fieldColor : bgColor;
       const dx = ci * charWidth;
       const dy = li * charHeight;
       for (let py = 0; py < charHeight; py++) {
@@ -139862,17 +139798,10 @@ function renderImageMode(ctx, cardLines, templateLines, palette, textColor, bgCo
           const si = (py * charWidth + px) * 4;
           const di = ((dy + py) * ctx.canvas.width + (dx + px)) * 4;
           const glyphPixel = glyph.data[si];
-          if (glyphPixel > 127) {
-            imageData.data[di] = fg[0];
-            imageData.data[di + 1] = fg[1];
-            imageData.data[di + 2] = fg[2];
-            imageData.data[di + 3] = 255;
-          } else {
-            imageData.data[di] = bg[0];
-            imageData.data[di + 1] = bg[1];
-            imageData.data[di + 2] = bg[2];
-            imageData.data[di + 3] = 255;
-          }
+          imageData.data[di] = glyphPixel > 127 ? fg[0] : bg[0];
+          imageData.data[di + 1] = glyphPixel > 127 ? fg[1] : bg[1];
+          imageData.data[di + 2] = glyphPixel > 127 ? fg[2] : bg[2];
+          imageData.data[di + 3] = 255;
         }
       }
     }
@@ -139891,31 +139820,18 @@ function renderCanvasMode(ctx, cardLines, templateLines, palette, textColor, bgC
     for (let ci = 0; ci < cardLine.length; ci++) {
       const ch = cardLine[ci];
       const baseChar = templLine[ci] ?? ch;
-      const isHighlight = ch !== baseChar;
       const x = ci * charWidth;
       const y = li * charHeight;
-      if (isHighlight) {
-        const fieldColor = getFieldColor(li, ci, cardLines, palette, theme, layout);
-        if (fieldColor) {
-          ctx.fillStyle = rgbToCss(fieldColor);
-          ctx.fillRect(x, y, charWidth, charHeight);
-          ctx.fillStyle = rgbToCss(highlightTextColor);
-        } else {
-          ctx.fillStyle = rgbToCss(textColor);
-        }
+      const fieldColor = ch === baseChar ? null : getFieldColor(li, ci, cardLines, palette, theme, layout);
+      if (fieldColor) {
+        ctx.fillStyle = rgbToCss(fieldColor);
+        ctx.fillRect(x, y, charWidth, charHeight);
+        ctx.fillStyle = rgbToCss(highlightTextColor);
       } else {
         ctx.fillStyle = rgbToCss(textColor);
       }
       ctx.fillText(ch, x, y);
     }
-  }
-}
-function fillBg(imageData, bgColor) {
-  for (let i = 0; i < imageData.data.length; i += 4) {
-    imageData.data[i] = bgColor[0];
-    imageData.data[i + 1] = bgColor[1];
-    imageData.data[i + 2] = bgColor[2];
-    imageData.data[i + 3] = 255;
   }
 }
 function rgbToCss([r, g, b]) {
@@ -139927,6 +139843,9 @@ var import_phaser = __toESM(require_phaser());
 
 // lib/game.ts
 var BUILDING_TYPES = ["house", "tower", "castle"];
+var GRASS_KINDS = /* @__PURE__ */ new Set(["grass"]);
+var BUILDING_KINDS = /* @__PURE__ */ new Set(["grass", "rock"]);
+var WALKABLE_KINDS = /* @__PURE__ */ new Set(["grass", "beach", "rock"]);
 var ROOM_LEVEL = { beach: 0, grass: 1, rock: 2 };
 var clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 var TILE = 64;
@@ -140235,43 +140154,26 @@ function contentOverlaps(world, r) {
   }
   return false;
 }
-function rectOnGrass(world, r) {
+function rectOnKinds(world, r, kinds) {
   const x0 = Math.floor(r.x / TILE);
   const y0 = Math.floor(r.y / TILE);
   const x1 = Math.floor((r.x + r.w - 1) / TILE);
   const y1 = Math.floor((r.y + r.h - 1) / TILE);
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
-      if (terrainAt(world, tx, ty) !== "grass") return false;
+      if (!kinds.has(terrainAt(world, tx, ty))) return false;
     }
   }
   return true;
+}
+function rectOnGrass(world, r) {
+  return rectOnKinds(world, r, GRASS_KINDS);
 }
 function rectOnBuildingSite(world, r) {
-  const x0 = Math.floor(r.x / TILE);
-  const y0 = Math.floor(r.y / TILE);
-  const x1 = Math.floor((r.x + r.w - 1) / TILE);
-  const y1 = Math.floor((r.y + r.h - 1) / TILE);
-  for (let ty = y0; ty <= y1; ty++) {
-    for (let tx = x0; tx <= x1; tx++) {
-      const kind = terrainAt(world, tx, ty);
-      if (kind !== "grass" && kind !== "rock") return false;
-    }
-  }
-  return true;
+  return rectOnKinds(world, r, BUILDING_KINDS);
 }
 function rectOnWalkable(world, r) {
-  const x0 = Math.floor(r.x / TILE);
-  const y0 = Math.floor(r.y / TILE);
-  const x1 = Math.floor((r.x + r.w - 1) / TILE);
-  const y1 = Math.floor((r.y + r.h - 1) / TILE);
-  for (let ty = y0; ty <= y1; ty++) {
-    for (let tx = x0; tx <= x1; tx++) {
-      const kind = terrainAt(world, tx, ty);
-      if (kind !== "grass" && kind !== "beach" && kind !== "rock") return false;
-    }
-  }
-  return true;
+  return rectOnKinds(world, r, WALKABLE_KINDS);
 }
 function placeWaterRocks(world, rand) {
   const spacing = 4;
@@ -140322,16 +140224,14 @@ function placeDeco(world, rand) {
   }
 }
 var CELL = 24;
-function reachableAt(world, sx, sy) {
+function floodFill(world, sx, sy, isOpen) {
   const cols = Math.floor(world.width * TILE / CELL);
   const rows = Math.floor(world.height * TILE / CELL);
-  const blocked = (cx, cy) => !canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2);
   const startX = Math.floor(sx / CELL);
   const startY = Math.floor(sy / CELL);
-  if (blocked(startX, startY)) return 0;
+  if (!isOpen(startX, startY)) return /* @__PURE__ */ new Set();
   const seen = /* @__PURE__ */ new Set([`${startX},${startY}`]);
   const queue = [[startX, startY]];
-  let count = 1;
   while (queue.length > 0) {
     const [cx, cy] = queue.shift();
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -140340,13 +140240,12 @@ function reachableAt(world, sx, sy) {
       if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
       const key = `${nx},${ny}`;
       if (seen.has(key)) continue;
-      if (blocked(nx, ny)) continue;
+      if (!isOpen(nx, ny)) continue;
       seen.add(key);
       queue.push([nx, ny]);
-      count++;
     }
   }
-  return count;
+  return seen;
 }
 function generateWorld(seed, width = 16, height = 16) {
   const rand = createRng(seed);
@@ -140425,11 +140324,12 @@ function generateWorld(seed, width = 16, height = 16) {
   const totalCells = Math.floor(width * TILE / CELL) * Math.floor(height * TILE / CELL);
   let bestScore = -1;
   let best = { x: TILE, y: TILE, facing: "down" };
+  const isOpen = (cx, cy) => canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2);
   for (let attempt = 0; attempt < 400; attempt++) {
     const px = TILE + Math.floor(rand() * (width - 2) * TILE / CELL) * CELL + CELL / 2;
     const py = TILE + Math.floor(rand() * (height - 2) * TILE / CELL) * CELL + CELL / 2;
-    if (!canOccupyAt(world, px, py)) continue;
-    const score = reachableAt(world, px, py);
+    if (!isOpen(Math.floor(px / CELL), Math.floor(py / CELL))) continue;
+    const score = floodFill(world, px, py, isOpen).size;
     if (score > bestScore) {
       bestScore = score;
       best = { x: px, y: py, facing: "down" };
@@ -140496,28 +140396,7 @@ function generateWorld(seed, width = 16, height = 16) {
     }
   };
   ensureStairReachability();
-  const reach = /* @__PURE__ */ new Set();
-  (() => {
-    const cols = Math.floor(world.width * TILE / CELL);
-    const rows = Math.floor(world.height * TILE / CELL);
-    const startX = Math.floor(world.player.x / CELL);
-    const startY = Math.floor(world.player.y / CELL);
-    const queue = [[startX, startY]];
-    reach.add(`${startX},${startY}`);
-    while (queue.length > 0) {
-      const [cx, cy] = queue.shift();
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = cx + dx;
-        const ny = cy + dy;
-        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
-        const key = `${nx},${ny}`;
-        if (reach.has(key)) continue;
-        if (!canOccupyAt(world, nx * CELL + CELL / 2, ny * CELL + CELL / 2)) continue;
-        reach.add(key);
-        queue.push([nx, ny]);
-      }
-    }
-  })();
+  const reach = floodFill(world, world.player.x, world.player.y, (cx, cy) => canOccupyAt(world, cx * CELL + CELL / 2, cy * CELL + CELL / 2));
   const baseReachable = (rect) => {
     const cx = Math.floor(rect.x / CELL) + Math.floor(rect.w / CELL / 2);
     const cy = Math.floor((rect.y + rect.h) / CELL);
@@ -140650,6 +140529,12 @@ var STAIRS_CENTER_TILE = 29;
 var STAIRS_RIGHT_TILE = 30;
 var STAIRS_SINGLE_TILE = 31;
 var STAIRS_TILE = STAIRS_SINGLE_TILE;
+function edgeTile(single, left, right, center, runWidth, colInRun) {
+  if (runWidth <= 1) return single;
+  if (colInRun <= 0) return left;
+  if (colInRun >= runWidth - 1) return right;
+  return center;
+}
 function wallRunInfo(terrainRow, tx) {
   if (terrainRow[tx] !== "cliff") return null;
   let start = tx;
@@ -140703,19 +140588,13 @@ function rockElevationTile(world, tx, ty) {
   return rockTileIndex(mask);
 }
 function wallTileIndex(runWidth, colInRun) {
-  if (runWidth <= 1) return WALL_SINGLE_TILE;
-  if (colInRun <= 0) return WALL_LEFT_TILE;
-  if (colInRun >= runWidth - 1) return WALL_RIGHT_TILE;
-  return WALL_CENTER_TILE;
+  return edgeTile(WALL_SINGLE_TILE, WALL_LEFT_TILE, WALL_RIGHT_TILE, WALL_CENTER_TILE, runWidth, colInRun);
 }
 function stairsTileIndex() {
   return STAIRS_TILE;
 }
 function stairsTileVariant(runWidth, colInRun) {
-  if (runWidth <= 1) return STAIRS_SINGLE_TILE;
-  if (runWidth === 2) return colInRun === 0 ? STAIRS_LEFT_TILE : STAIRS_RIGHT_TILE;
-  const variants = [STAIRS_LEFT_TILE, STAIRS_CENTER_TILE, STAIRS_RIGHT_TILE];
-  return variants[Math.min(Math.max(colInRun, 0), variants.length - 1)];
+  return edgeTile(STAIRS_SINGLE_TILE, STAIRS_LEFT_TILE, STAIRS_RIGHT_TILE, STAIRS_CENTER_TILE, runWidth, colInRun);
 }
 
 // www/game.ts
@@ -140869,22 +140748,57 @@ var GameScene = class extends import_phaser.default.Scene {
     this.targetMarker = marker;
     this.markerFading = false;
   }
-  // Total distance still left to walk: from the current feet position through
-  // every remaining waypoint to the destination marker. Path waypoints are
-  // cell centers, so this is the true remaining route length (walls included).
+  // Total distance still left to walk along the route.
   remainingPathLength(px, py) {
     let total = 0;
-    let cx = px;
-    let cy = py;
+    let cx = px, cy = py;
     for (const wp of this.path) {
       total += Math.hypot(wp.px - cx, wp.py - cy);
       cx = wp.px;
       cy = wp.py;
     }
-    if (this.targetMarker) {
-      total += Math.hypot(this.targetMarker.x - cx, this.targetMarker.y - cy);
-    }
+    if (this.targetMarker) total += Math.hypot(this.targetMarker.x - cx, this.targetMarker.y - cy);
     return total;
+  }
+  // Follow the next waypoint on the path. Returns true if still moving.
+  followWaypoint(step) {
+    if (!this.path || this.path.length === 0) return false;
+    const p = this.world.player;
+    let guard = 0;
+    while (this.path.length > 0 && guard++ < 64) {
+      const wp = this.path[0];
+      const ex = wp.px - p.x, ey = wp.py - p.y;
+      const dist = Math.hypot(ex, ey);
+      if (dist <= 0.5) {
+        p.x = wp.px;
+        p.y = wp.py;
+        this.path.shift();
+        continue;
+      }
+      const ok = movePlayer(this.world, ex / dist, ey / dist, Math.min(step, dist));
+      const done = Math.hypot(wp.px - p.x, wp.py - p.y);
+      if (done <= 4) {
+        p.x = wp.px;
+        p.y = wp.py;
+        this.path.shift();
+        continue;
+      }
+      if (!ok && dist < 16) {
+        this.path.shift();
+        continue;
+      }
+      if (!ok) {
+        this.path = null;
+        this.clearMarker();
+        return false;
+      }
+      break;
+    }
+    if (this.path && this.path.length === 0) {
+      this.path = null;
+      this.clearMarker();
+    }
+    return this.path !== null;
   }
   clearMarker() {
     if (this.targetMarker) {
@@ -140893,36 +140807,35 @@ var GameScene = class extends import_phaser.default.Scene {
     }
     this.markerFading = false;
   }
-  // Layered tilemap, bottom to top: deep sea (water.png) → foam → rocks/elevation
-  // → grass → beach. 64px tiles, one game tile each, so the world grid lines up
-  // with collision/placement. The cliff band shows the wall tiles (with one stairs
-  // tile at the climb point); beach and grass tiles draw the flat ground.
-  // Sea/coast get no flat layer. Foam is below all land tiles so the land
-  // tiles naturally occlude the foam blob center; only the foam strips at tile
-  // edges show over water as ripples. No masking needed.
+  // Layered tilemap: water(-10) → elevation(-9) → foam(-8) → beach(-7)/grass(-6).
   buildTerrain() {
     const map = this.make.tilemap({ width: MAP_W, height: MAP_H, tileWidth: TILE, tileHeight: TILE });
-    const waterTiles = map.addTilesetImage("water", "water");
-    const elevationTiles = map.addTilesetImage("elevation", "elevation");
-    const flatTiles = map.addTilesetImage("flat", "flat");
-    map.createBlankLayer("water", waterTiles).fill(0).setDepth(-10);
-    const elevationLayer = map.createBlankLayer("elevation", elevationTiles).setDepth(-9);
-    const beachLayer = map.createBlankLayer("beach", flatTiles).setDepth(-7);
-    const grassLayer = map.createBlankLayer("grass", flatTiles).setDepth(-6);
+    const elevationLayer = map.createBlankLayer("elevation", map.addTilesetImage("elevation", "elevation")).setDepth(-9);
+    const beachLayer = map.createBlankLayer("beach", map.addTilesetImage("flat", "flat")).setDepth(-7);
+    const grassLayer = map.createBlankLayer("grass", map.addTilesetImage("flat", "flat")).setDepth(-6);
+    map.createBlankLayer("water", map.addTilesetImage("water", "water")).fill(0).setDepth(-10);
     for (let ty = 0; ty < MAP_H; ty++) {
+      const row = this.world.terrain[ty];
       for (let tx = 0; tx < MAP_W; tx++) {
-        const kind = this.world.terrain[ty][tx];
-        if (kind === "cliff") {
-          elevationLayer.putTileAt(elevationTileIndex(kind, this.world.terrain[ty], tx), tx, ty);
-        } else if (kind === "stairs") {
-          const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
-          const tile = run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, this.world.terrain[ty], tx);
-          elevationLayer.putTileAt(tile, tx, ty);
-        } else if (kind === "rock") {
-          elevationLayer.putTileAt(rockElevationTile(this.world, tx, ty), tx, ty);
-        } else if (kind === "beach" || kind === "grass") {
-          const layer = kind === "beach" ? beachLayer : grassLayer;
-          layer.putTileAt(flatTileIndex(kind, flatEdgeMask(this.world, tx, ty, kind)), tx, ty);
+        const kind = row[tx];
+        switch (kind) {
+          case "cliff":
+            elevationLayer.putTileAt(elevationTileIndex(kind, row, tx), tx, ty);
+            break;
+          case "stairs": {
+            const run = this.world.stairs.find((s) => s.row === ty && tx >= s.start && tx < s.start + s.width);
+            elevationLayer.putTileAt(run ? stairsTileVariant(run.width, tx - run.start) : elevationTileIndex(kind, row, tx), tx, ty);
+            break;
+          }
+          case "rock":
+            elevationLayer.putTileAt(rockElevationTile(this.world, tx, ty), tx, ty);
+            break;
+          case "beach":
+            beachLayer.putTileAt(flatTileIndex("beach", flatEdgeMask(this.world, tx, ty, "beach")), tx, ty);
+            break;
+          case "grass":
+            grassLayer.putTileAt(flatTileIndex("grass", flatEdgeMask(this.world, tx, ty, "grass")), tx, ty);
+            break;
         }
       }
     }
@@ -141013,57 +140926,15 @@ var GameScene = class extends import_phaser.default.Scene {
       const len = Math.hypot(dx, dy);
       const step = SPEED * Math.min(delta, 50) / 1e3;
       movePlayer(this.world, dx / len, dy / len, step);
-    } else if (this.path && this.path.length > 0) {
+    } else if (this.path) {
       if (this.targetMarker && !this.markerFading) {
-        const remaining = this.remainingPathLength(p.x, p.y);
-        if (remaining < 2 * TILE) {
+        if (this.remainingPathLength(p.x, p.y) < 2 * TILE) {
           this.markerFading = true;
-          this.tweens.add({
-            targets: this.targetMarker,
-            alpha: 0,
-            duration: 300,
-            ease: "Sine.In"
-          });
+          this.tweens.add({ targets: this.targetMarker, alpha: 0, duration: 300, ease: "Sine.In" });
         }
       }
       const step = SPEED * Math.min(delta, 50) / 1e3;
-      let guard = 0;
-      while (this.path.length > 0 && guard++ < 64) {
-        const wp = this.path[0];
-        const ex = wp.px - p.x;
-        const ey = wp.py - p.y;
-        const dist = Math.hypot(ex, ey);
-        if (dist <= 0.5) {
-          p.x = wp.px;
-          p.y = wp.py;
-          this.path.shift();
-          moving = true;
-          continue;
-        }
-        const ok = movePlayer(this.world, ex / dist, ey / dist, Math.min(step, dist));
-        moving = true;
-        const done = Math.hypot(wp.px - p.x, wp.py - p.y);
-        if (done <= 4) {
-          p.x = wp.px;
-          p.y = wp.py;
-          this.path.shift();
-          continue;
-        }
-        if (!ok && dist < 16) {
-          this.path.shift();
-          continue;
-        }
-        if (!ok) {
-          this.path = null;
-          this.clearMarker();
-          break;
-        }
-        break;
-      }
-      if (this.path && this.path.length === 0) {
-        this.path = null;
-        this.clearMarker();
-      }
+      if (this.followWaypoint(step)) moving = true;
     }
     const anim = this.player.anims.getName();
     if (moving) {
@@ -141143,9 +141014,9 @@ var layoutSelect = document.getElementById("layout-select");
 var modeToggle = document.getElementById("mode-toggle");
 var modeLabel = document.getElementById("mode-label");
 var currentCard = "";
+var cards = [];
 var imageMode = true;
 var spritesheetLoaded = false;
-var cards = [];
 var game;
 async function init() {
   await loadOraclesJSON();
@@ -141155,26 +141026,17 @@ async function init() {
   newCard();
   generateBtn.addEventListener("click", newCard);
   themeSelect.addEventListener("change", () => {
+    cards = cards.map((c) => ({ ...c, theme: themeSelect.value }));
     renderAllCards();
   });
   layoutSelect.addEventListener("change", newCard);
   modeToggle.addEventListener("click", toggleMode);
   document.addEventListener("keydown", handleKeyDown);
   updateLayout();
-  requestAnimationFrame(() => {
-    const canvas = document.querySelector(".card-canvas");
-    if (canvas && game) {
-      game.resize(canvas.width, canvas.height);
-    }
-  });
+  requestAnimationFrame(resizeGame);
 }
 function updateLayout() {
-  const isLandscape = layoutSelect.value === "landscape";
-  if (isLandscape) {
-    mainEl.classList.add("landscape");
-  } else {
-    mainEl.classList.remove("landscape");
-  }
+  mainEl.classList.toggle("landscape", layoutSelect.value === "landscape");
 }
 async function loadOraclesJSON() {
   const resp = await fetch("ironsworn_oracles.json");
@@ -141188,7 +141050,7 @@ async function loadSpritesheet() {
   const offscreen = document.createElement("canvas");
   offscreen.width = img.width;
   offscreen.height = img.height;
-  const octx = offscreen.getContext("2d");
+  const octx = offscreen.getContext("2d", { willReadFrequently: true });
   octx.drawImage(img, 0, 0);
   parseSpritesheet(img, octx);
   spritesheetLoaded = true;
@@ -141199,37 +141061,30 @@ function newCard() {
   renderAllCards();
   updateLayout();
   if (game) game.regenerate(hashString(currentCard));
-  requestAnimationFrame(() => {
-    const canvas = document.querySelector(".card-canvas");
-    if (canvas && game) {
-      game.resize(canvas.width, canvas.height);
-    }
-  });
+  requestAnimationFrame(resizeGame);
 }
 function renderAllCards() {
   cardContainer.innerHTML = "";
   const grid = document.createElement("div");
   grid.className = "card-grid";
   cardContainer.appendChild(grid);
-  for (const cardData of cards) {
+  for (const { cardText, theme, layout } of cards) {
     const canvas = document.createElement("canvas");
     canvas.className = "card-canvas";
-    const ctx = canvas.getContext("2d");
-    renderCardToCanvas(ctx, cardData.cardText, cardData.theme, imageMode, cardData.layout);
+    renderCardToCanvas(canvas.getContext("2d"), cardText, theme, imageMode, layout);
     grid.appendChild(canvas);
   }
-  requestAnimationFrame(() => {
-    const canvas = document.querySelector(".card-canvas");
-    if (canvas && game) {
-      game.resize(canvas.width, canvas.height);
-    }
-  });
+  requestAnimationFrame(resizeGame);
 }
 function toggleMode() {
   imageMode = !imageMode;
   modeLabel.textContent = imageMode ? "Image Mode" : "Canvas Mode";
   modeToggle.textContent = imageMode ? "Switch to Canvas Mode" : "Switch to Image Mode";
   renderAllCards();
+}
+function resizeGame() {
+  const canvas = document.querySelector(".card-canvas");
+  if (canvas && game) game.resize(canvas.width, canvas.height);
 }
 function handleKeyDown(e) {
   if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
@@ -141251,10 +141106,8 @@ function handleKeyDown(e) {
   }
 }
 function cycleTheme() {
-  const themes = ["macchiato", "latte"];
-  const currentIdx = themes.indexOf(themeSelect.value);
-  const nextIdx = themeSelect.value === "macchiato" ? 1 : 0;
-  themeSelect.value = themes[nextIdx];
+  themeSelect.value = themeSelect.value === "macchiato" ? "latte" : "macchiato";
+  cards = cards.map((c) => ({ ...c, theme: themeSelect.value }));
   renderAllCards();
 }
 init();

@@ -1,4 +1,5 @@
 import type { Layout } from './oracle_data.ts';
+import { LANDSCAPE_TEMPLATE, PORTRAIT_TEMPLATE } from './oracle_data.ts';
 
 export type Rgb = [number, number, number];
 export type ThemeName = 'macchiato' | 'latte';
@@ -39,7 +40,7 @@ export function getPalette(theme: ThemeName = 'macchiato'): Record<string, Rgb> 
 
 export function getTerminalPalette(theme: ThemeName = 'macchiato'): Record<string, string> {
   const c = getColors(theme);
-  const neutral = theme === 'macchiato' ? c.crust : c.overlay0;
+  const neutral = c.overlay0;
   return {
     positive: ansiRgb(c.blue),
     negative: ansiRgb(c.rosewater),
@@ -147,63 +148,6 @@ const LANDSCAPE_FIELD_POSITIONS: [number, number, number, string][] = [
   [8, 22, 6, 'vice'],
 ];
 
-function getFieldPositions(layout: Layout): [number, number, number, string][] {
-  return layout === 'landscape' ? LANDSCAPE_FIELD_POSITIONS : FIELD_POSITIONS;
-}
-
-function getFieldCategory(layout: Layout): Record<string, string> {
-  return layout === 'landscape' ? LANDSCAPE_FIELD_CATEGORY : FIELD_CATEGORY;
-}
-
-function buildPositionMap(positions: [number, number, number, string][]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const [line, col, length, fieldName] of positions) {
-    for (let i = 0; i < length; i++) {
-      map.set(`${line},${col + i}`, fieldName);
-    }
-  }
-  return map;
-}
-
-const POSITION_MAP = buildPositionMap(FIELD_POSITIONS);
-
-const POSITION_MAPS = new Map<Layout, Map<string, string>>();
-
-function getPositionMap(layout: Layout): Map<string, string> {
-  if (layout === 'portrait') return POSITION_MAP;
-  if (!POSITION_MAPS.has(layout)) {
-    POSITION_MAPS.set(layout, buildPositionMap(getFieldPositions(layout)));
-  }
-  return POSITION_MAPS.get(layout)!;
-}
-
-function buildYesnoPrimaries(
-  positions: [number, number, number, string][],
-  category: Record<string, string>,
-): Map<string, [number, number]> {
-  const primaries = new Map<string, [number, number]>();
-  for (const [line, col, length, fieldName] of positions) {
-    if (category[fieldName] === 'yesno') {
-      for (let i = 0; i < length; i++) {
-        primaries.set(`${line},${col + i}`, [line, col]);
-      }
-    }
-  }
-  return primaries;
-}
-
-const YESNO_PRIMARIES = buildYesnoPrimaries(FIELD_POSITIONS, FIELD_CATEGORY);
-
-const YESNO_PRIMARIES_MAPS = new Map<Layout, Map<string, [number, number]>>();
-
-function getYesnoPrimaries(layout: Layout): Map<string, [number, number]> {
-  if (layout === 'portrait') return YESNO_PRIMARIES;
-  if (!YESNO_PRIMARIES_MAPS.has(layout)) {
-    YESNO_PRIMARIES_MAPS.set(layout, buildYesnoPrimaries(getFieldPositions(layout), getFieldCategory(layout)));
-  }
-  return YESNO_PRIMARIES_MAPS.get(layout)!;
-}
-
 const DICE_MAX: Record<string, number> = {
   d4: 4,
   d6: 6,
@@ -215,19 +159,66 @@ const DICE_MAX: Record<string, number> = {
   d100: 100,
 };
 
-const DICE_SPANS = new Map<Layout, Map<string, [number, number, number]>>();
+// Single lazy cache for all layout-dependent lookups
+interface LayoutData {
+  posMap: Map<string, string>;
+  yesnoPrimaries: Map<string, [number, number]>;
+  diceSpans: Map<string, [number, number, number]>;
+  fieldCategory: Record<string, string>;
+}
 
-function getDiceSpans(layout: Layout): Map<string, [number, number, number]> {
-  if (!DICE_SPANS.has(layout)) {
-    const map = new Map<string, [number, number, number]>();
-    for (const [line, col, length, fieldName] of getFieldPositions(layout)) {
-      if (DICE_MAX[fieldName] !== undefined) {
-        map.set(fieldName, [line, col, length]);
+const LAYOUT_CACHE = new Map<Layout, LayoutData>();
+
+function getLayoutData(layout: Layout): LayoutData {
+  if (!LAYOUT_CACHE.has(layout)) {
+    const positions = layout === 'landscape' ? LANDSCAPE_FIELD_POSITIONS : FIELD_POSITIONS;
+    const category = layout === 'landscape' ? LANDSCAPE_FIELD_CATEGORY : FIELD_CATEGORY;
+
+    // Build position map: each char cell → fieldName
+    const posMap = new Map<string, string>();
+    for (const [line, col, length, fieldName] of positions) {
+      for (let i = 0; i < length; i++) {
+        posMap.set(`${line},${col + i}`, fieldName);
       }
     }
-    DICE_SPANS.set(layout, map);
+
+    // Build yesno primaries: each cell in a yesno field → [primaryLine, primaryCol]
+    const yesnoPrimaries = new Map<string, [number, number]>();
+    for (const [line, col, length, fieldName] of positions) {
+      if (category[fieldName] === 'yesno') {
+        for (let i = 0; i < length; i++) {
+          yesnoPrimaries.set(`${line},${col + i}`, [line, col]);
+        }
+      }
+    }
+
+    // Build dice spans: fieldName → [line, col, length]
+    const diceSpans = new Map<string, [number, number, number]>();
+    for (const [line, col, length, fieldName] of positions) {
+      if (DICE_MAX[fieldName] !== undefined) {
+        diceSpans.set(fieldName, [line, col, length]);
+      }
+    }
+
+    LAYOUT_CACHE.set(layout, { posMap, yesnoPrimaries, diceSpans, fieldCategory: category });
   }
-  return DICE_SPANS.get(layout)!;
+  return LAYOUT_CACHE.get(layout)!;
+}
+
+function getPositionMap(layout: Layout): Map<string, string> {
+  return getLayoutData(layout).posMap;
+}
+
+function getYesnoPrimaries(layout: Layout): Map<string, [number, number]> {
+  return getLayoutData(layout).yesnoPrimaries;
+}
+
+function getFieldCategory(layout: Layout): Record<string, string> {
+  return getLayoutData(layout).fieldCategory;
+}
+
+function getDiceSpans(layout: Layout): Map<string, [number, number, number]> {
+  return getLayoutData(layout).diceSpans;
 }
 
 function resolveDiceCategory(fieldName: string, cardLines: string[], layout: Layout): string | null {
@@ -277,7 +268,8 @@ export function getFieldColor(
   return palette[cat] ?? palette.neutral;
 }
 
-export const TEMPLATE_TEXT = '┌────────────────────┐\n' +
+// Placeholder templates for colorization (field positions, not content)
+const PORTRAIT_PLACEHOLDER = '┌────────────────────┐\n' +
   '│low:@@  d4 @  d12 @@│\n' +
   '├───:@@  d6 @  d20 @@│\n' +
   '│hi :@@  d8 @  d00 @@│\n' +
@@ -296,7 +288,7 @@ export const TEMPLATE_TEXT = '┌───────────────�
   '│VC:@@@@@@@@@@@@@@@@@│\n' +
   '└────────────────────┘';
 
-export const LANDSCAPE_TEMPLATE_TEXT = '┌────────────────────────────┐\n' +
+const LANDSCAPE_PLACEHOLDER = '┌────────────────────────────┐\n' +
   '│ D4 :@@ D6 :@@ D8 :@@ D10:@@│\n' +
   '│  D12 :@@ D20 :@@ D100:@@@  │\n' +
   '├────────────────────────────┤\n' +
@@ -308,7 +300,7 @@ export const LANDSCAPE_TEMPLATE_TEXT = '┌────────────�
   '└────────────────────────────┘';
 
 export function getTemplateText(layout: Layout = 'portrait'): string {
-  return layout === 'landscape' ? LANDSCAPE_TEMPLATE_TEXT : TEMPLATE_TEXT;
+  return layout === 'landscape' ? LANDSCAPE_PLACEHOLDER : PORTRAIT_PLACEHOLDER;
 }
 
 export function colorizeCard(
