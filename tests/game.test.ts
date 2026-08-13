@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { canOccupyAt, generateWorld, ROOM_LEVEL, TILE } from '../lib/game.ts';
+import { canOccupyAt, generateWorld, landTouchesWater, ROOM_LEVEL, TILE } from '../lib/game.ts';
 import type { Room, StairRun, World } from '../lib/game.ts';
 
 const W = 16;
@@ -398,6 +398,38 @@ Deno.test('rooms — player cannot stand on the cliff face but can on the stairs
   assertEquals(canOccupyAt(w, stairs.tx * TILE + TILE / 2, stairs.ty * TILE + TILE / 2), true);
   // The player spawns on walkable ground.
   assert(canOccupyAt(w, w.player.x, w.player.y));
+});
+
+// ── Foam: wall tiles touching water ────────────────────────────────────────
+
+Deno.test('foam — wall tiles that meet the sea qualify for foam (landTouchesWater)', () => {
+  let wallWaterSeen = 0;
+  let wallIsolatedSeen = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const w = generateWorld(seed, W, H);
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        if (w.terrain[ty][tx] !== 'cliff') continue;
+        const water = (x: number, y: number): boolean =>
+          x >= 0 && x < W && y >= 0 && y < H &&
+          (w.terrain[y][x] === 'sea' || w.terrain[y][x] === 'coast');
+        const hasWaterNeighbor =
+          water(tx - 1, ty) || water(tx + 1, ty) || water(tx, ty - 1) || water(tx, ty + 1);
+        if (hasWaterNeighbor) {
+          wallWaterSeen++;
+          assert(landTouchesWater(w, tx, ty), `seed ${seed}: wall (${tx},${ty}) should touch water`);
+        } else {
+          wallIsolatedSeen++;
+          assertEquals(landTouchesWater(w, tx, ty), false, `seed ${seed}: wall (${tx},${ty}) should not touch water`);
+        }
+      }
+    }
+  }
+  // Over many seeds the wall bands must actually hang over the sea (their
+  // west/east ends and the south lips where a lower room is narrower).
+  assert(wallWaterSeen > 0, 'expected some cliff tiles to touch water');
+  // Interior wall spans (the face above a room) stay sealed away from water.
+  assert(wallIsolatedSeen > 0, 'expected some cliff tiles to be sealed from water');
 });
 
 // ── Landmarks ──────────────────────────────────────────────────────────────

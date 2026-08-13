@@ -224,13 +224,16 @@ export const EDGE_S = 2;
 export const EDGE_W = 4;
 export const EDGE_E = 8;
 
-// True when a land tile (beach/grass/rock) has an orthogonal water (sea/coast)
-// neighbor. Foam is centered on these land tiles: the opaque land tile drawn
-// above hides the foam blob's full center, leaving only the outer foam strips
-// to ripple out over the adjacent water.
+// True when a surface tile (beach/grass/rock, or a cliff wall face) has an
+// orthogonal water (sea/coast) neighbor. Foam is centered on these tiles: the
+// opaque land tile drawn above hides the foam blob's full center, leaving only
+// the outer foam strips to ripple out over the adjacent water. Cliff tiles are
+// included so the wall bands lap foam onto the sea — at the west/east ends of a
+// wall run, and along the wall's south lip where the room below is narrower
+// than the room above and the wall overhangs open sea.
 export function landTouchesWater(world: World, tx: number, ty: number): boolean {
   const kind = terrainAt(world, tx, ty);
-  if (kind !== 'beach' && kind !== 'grass' && kind !== 'rock') return false;
+  if (kind !== 'beach' && kind !== 'grass' && kind !== 'rock' && kind !== 'cliff') return false;
   const neighbors: Array<[number, number]> = [[0, -1], [0, 1], [-1, 0], [1, 0]];
   for (const [dx, dy] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);

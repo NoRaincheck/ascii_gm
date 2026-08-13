@@ -140016,7 +140016,7 @@ var EDGE_W = 4;
 var EDGE_E = 8;
 function landTouchesWater(world, tx, ty) {
   const kind = terrainAt(world, tx, ty);
-  if (kind !== "beach" && kind !== "grass" && kind !== "rock") return false;
+  if (kind !== "beach" && kind !== "grass" && kind !== "rock" && kind !== "cliff") return false;
   const neighbors = [[0, -1], [0, 1], [-1, 0], [1, 0]];
   for (const [dx, dy] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
@@ -140930,21 +140930,22 @@ var GameScene = class extends import_phaser.default.Scene {
   // Animated foam ripples along the coast. Each frame is a 3×3 grid of 64px
   // tiles (192×192 total). The blob is centered on the frame with foam strips
   // extending into the 4 orthogonal neighbor tiles (corners are empty). A sprite
-  // is centered on every land tile that touches water. The opaque beach/grass
-  // tile drawn above (depth -7/-6) hides the blob's full center, and the foam
-  // is masked to the water so only the outer strips show over sea/coast as
-  // ripples — without the mask the blob body bleeds through the transparent
-  // edge speckles of shore tiles (white flecks on grass/beach/rock) and over
-  // the cliff band. The mask covers in-map sea/coast tiles plus a one-tile
-  // off-map border: the strips of edge land tiles ripple out over the ocean
-  // beyond the map bounds (e.g. the south strips of the bottom beach tiles).
-  // Start frames are staggered per tile to avoid lockstep animation.
+  // is centered on every beach/grass/rock/cliff tile that touches water (the
+  // wall bands included, so the cliff face laps foam where it meets the sea).
+  // The opaque beach/grass tile drawn above (depth -7/-6) hides the blob's full
+  // center, and the foam is masked to the water so only the outer strips show
+  // over sea/coast as ripples — without the mask the blob body bleeds through
+  // the transparent edge speckles of shore tiles (white flecks on grass/beach/
+  // rock) and over the cliff band. The mask covers in-map sea/coast tiles plus a
+  // one-tile off-map border: the strips of edge land tiles ripple out over the
+  // ocean beyond the map bounds (e.g. the south strips of the bottom beach
+  // tiles). Start frames are staggered per tile to avoid lockstep animation.
   buildFoam() {
     const foamSprites = [];
     for (let ty = 0; ty < MAP_H; ty++) {
       for (let tx = 0; tx < MAP_W; tx++) {
         const kind = this.world.terrain[ty][tx];
-        if (kind !== "beach" && kind !== "grass" && kind !== "rock") continue;
+        if (kind !== "beach" && kind !== "grass" && kind !== "rock" && kind !== "cliff") continue;
         if (!landTouchesWater(this.world, tx, ty)) continue;
         const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, "foam");
         sprite.setDepth(-8);
