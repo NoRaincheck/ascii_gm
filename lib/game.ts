@@ -440,26 +440,54 @@ function buildRooms(world: World, rand: () => number): void {
         for (let c = s; c <= e; c++) terrain[bandRow][c] = 'cliff';
       }
     }
-    // Place one door per overlapping pair. A door must have a non-sea column on
-    // each side (at least a cliff lip) so the stairs never butt against the open
-    // sea at the run's flanks; if none fits, the pair shares a door with a
-    // neighbouring pair on the same wall (or the level's run).
-    for (const { s, e } of spans) {
-      const segW = e - s + 1;
-      const candidates: Array<{ start: number; width: number }> = [];
-      for (let w = Math.min(3, segW); w >= 1; w--) {
-        for (let st = s; st <= e - w + 1; st++) candidates.push({ start: st, width: w });
+    // Place one door per overlapping pair. A door must be walled in on both
+    // flanks — an actual cliff column on each side, never the open sea and
+    // never another doorway. That single rule forbids stair runs sitting next
+    // to each other: two doors must keep a wall column between them. Because a
+    // door stamped at a segment boundary can steal the lip column a neighbour
+    // span needs, the spans are placed together via a small backtracking
+    // search (a few candidate doors per band) rather than greedily one by one.
+    const options = spans.map(({ s, e }) => {
+      const cands: Array<{ start: number; width: number }> = [];
+      for (let w = Math.min(3, e - s + 1); w >= 1; w--) {
+        for (let st = s; st <= e - w + 1; st++) {
+          const left = st - 1 < 0 ? 'sea' : terrain[bandRow][st - 1];
+          const right = st + w >= world.width ? 'sea' : terrain[bandRow][st + w];
+          if (left === 'cliff' && right === 'cliff') cands.push({ start: st, width: w });
+        }
       }
-      shuffleWith(candidates, rand);
-      const fits = ({ start: st, width: w }: { start: number; width: number }): boolean => {
-        const left = st - 1 < 0 ? 'sea' : terrain[bandRow][st - 1];
-        const right = st + w >= world.width ? 'sea' : terrain[bandRow][st + w];
-        return left !== 'sea' && left !== 'coast' && right !== 'sea' && right !== 'coast';
-      };
-      const door = candidates.find(fits);
-      if (!door) continue;
-      for (let c = door.start; c < door.start + door.width; c++) terrain[bandRow][c] = 'stairs';
-      stairs.push({ start: door.start, width: door.width, row: bandRow });
+      return shuffleWith(cands, rand);
+    });
+    // Doors already chosen for this band, with a one-col wall margin on each
+    // side so neighbours can't sit flush. (start/end are the door body.)
+    const placed: Array<{ start: number; end: number }> = [];
+    const conflicts = ({ start: st, width: w }: { start: number; width: number }): boolean =>
+      placed.some((d) => !(st - 1 > d.end || st + w < d.start));
+    const place = (i: number): boolean => {
+      if (i === options.length) return true;
+      for (const door of options[i]) {
+        if (conflicts(door)) continue;
+        placed.push({ start: door.start, end: door.start + door.width - 1 });
+        if (place(i + 1)) return true;
+        placed.pop();
+      }
+      return false;
+    };
+    if (place(0)) {
+      for (const door of placed) {
+        for (let c = door.start; c <= door.end; c++) terrain[bandRow][c] = 'stairs';
+        stairs.push({ start: door.start, width: door.end - door.start + 1, row: bandRow });
+      }
+    } else {
+      // No non-conflicting assignment covers every span; fall back to greedy so
+      // the level still links up wherever the walls allow.
+      for (const span of spans) {
+        const door = options[spans.indexOf(span)].find((c) => !conflicts(c));
+        if (!door) continue;
+        placed.push({ start: door.start, end: door.start + door.width - 1 });
+        for (let c = door.start; c < door.start + door.width; c++) terrain[bandRow][c] = 'stairs';
+        stairs.push({ start: door.start, width: door.width, row: bandRow });
+      }
     }
   }
 

@@ -255,7 +255,12 @@ Deno.test('rooms — a room joins every room it overlaps on the level above/belo
                 `seed ${seed}: no door connecting u@${u.x}x${u.width} and l@${l.x}x${l.width}`);
             } else {
               const bothSea = w.terrain[bandRow][s - 1] === 'sea' && w.terrain[bandRow][s + 1] === 'sea';
-              assert(doors(bandRow).length >= 1 || bothSea,
+              // A lone column butts against the neighbour span's door on one
+              // side — stamping a door there would put two stair runs flush, so
+              // the column stays a wall instead.
+              const flushAgainstDoor =
+                w.terrain[bandRow][s - 1] === 'stairs' || w.terrain[bandRow][s + 1] === 'stairs';
+              assert(doors(bandRow).length >= 1 || bothSea || flushAgainstDoor,
                 `seed ${seed}: lone column ${s} can and should have a door`);
             }
             for (const d of doors(bandRow)) {
@@ -286,6 +291,29 @@ Deno.test('rooms — world.stairs matches the terrain', () => {
       const run = recorded[i];
       assertEquals(run.start, s, `run ${i} start`);
       assertEquals(run.width, e - s + 1, `run ${i} width`);
+    }
+  }
+});
+
+Deno.test('rooms — stair runs are never placed flush against each other', () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    const w = generateWorld(seed, W, H);
+    for (let ty = 0; ty < H; ty++) {
+      const runs = stairsRuns(w, ty)
+        .map(([s, e]) => ({ s, e }))
+        .sort((a, b) => a.s - b.s);
+      for (let i = 1; i < runs.length; i++) {
+        const prev = runs[i - 1];
+        const cur = runs[i];
+        assert(
+          cur.s > prev.e + 1,
+          `seed ${seed}: stair runs ${prev.s}-${prev.e} and ${cur.s}-${cur.e} are adjacent (row ${ty})`,
+        );
+        // The separating column must be a wall, not another stair run or sea.
+        for (let c = prev.e + 1; c < cur.s; c++) {
+          assertEquals(w.terrain[ty][c], 'cliff', `seed ${seed}: gap column ${c} (row ${ty}) is not a wall`);
+        }
+      }
     }
   }
 });

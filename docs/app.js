@@ -140148,22 +140148,42 @@ function buildRooms(world, rand) {
         for (let c = s; c <= e; c++) terrain[bandRow][c] = "cliff";
       }
     }
-    for (const { s, e } of spans2) {
-      const segW = e - s + 1;
-      const candidates = [];
-      for (let w = Math.min(3, segW); w >= 1; w--) {
-        for (let st = s; st <= e - w + 1; st++) candidates.push({ start: st, width: w });
+    const options = spans2.map(({ s, e }) => {
+      const cands = [];
+      for (let w = Math.min(3, e - s + 1); w >= 1; w--) {
+        for (let st = s; st <= e - w + 1; st++) {
+          const left = st - 1 < 0 ? "sea" : terrain[bandRow][st - 1];
+          const right = st + w >= world.width ? "sea" : terrain[bandRow][st + w];
+          if (left === "cliff" && right === "cliff") cands.push({ start: st, width: w });
+        }
       }
-      shuffleWith(candidates, rand);
-      const fits = ({ start: st, width: w }) => {
-        const left = st - 1 < 0 ? "sea" : terrain[bandRow][st - 1];
-        const right = st + w >= world.width ? "sea" : terrain[bandRow][st + w];
-        return left !== "sea" && left !== "coast" && right !== "sea" && right !== "coast";
-      };
-      const door = candidates.find(fits);
-      if (!door) continue;
-      for (let c = door.start; c < door.start + door.width; c++) terrain[bandRow][c] = "stairs";
-      stairs.push({ start: door.start, width: door.width, row: bandRow });
+      return shuffleWith(cands, rand);
+    });
+    const placed = [];
+    const conflicts = ({ start: st, width: w }) => placed.some((d) => !(st - 1 > d.end || st + w < d.start));
+    const place = (i) => {
+      if (i === options.length) return true;
+      for (const door of options[i]) {
+        if (conflicts(door)) continue;
+        placed.push({ start: door.start, end: door.start + door.width - 1 });
+        if (place(i + 1)) return true;
+        placed.pop();
+      }
+      return false;
+    };
+    if (place(0)) {
+      for (const door of placed) {
+        for (let c = door.start; c <= door.end; c++) terrain[bandRow][c] = "stairs";
+        stairs.push({ start: door.start, width: door.end - door.start + 1, row: bandRow });
+      }
+    } else {
+      for (const span of spans2) {
+        const door = options[spans2.indexOf(span)].find((c) => !conflicts(c));
+        if (!door) continue;
+        placed.push({ start: door.start, end: door.start + door.width - 1 });
+        for (let c = door.start; c < door.start + door.width; c++) terrain[bandRow][c] = "stairs";
+        stairs.push({ start: door.start, width: door.width, row: bandRow });
+      }
     }
   }
   world.terrain = terrain;
