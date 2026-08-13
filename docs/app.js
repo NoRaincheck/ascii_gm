@@ -140140,12 +140140,16 @@ function buildRooms(world, rand) {
     const bandRow = up[0].y + up[0].height;
     const spans2 = [];
     for (const u of up) {
+      let joins = false;
       for (const l of down) {
         const s = Math.max(u.x, l.x);
         const e = Math.min(u.x + u.width, l.x + l.width) - 1;
         if (s > e) continue;
+        joins = true;
         spans2.push({ s, e });
-        for (let c = s; c <= e; c++) terrain[bandRow][c] = "cliff";
+      }
+      if (joins) {
+        for (let c = u.x; c < u.x + u.width; c++) terrain[bandRow][c] = "cliff";
       }
     }
     const options = spans2.map(({ s, e }) => {

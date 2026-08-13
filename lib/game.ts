@@ -284,14 +284,16 @@ export function flatTileIndex(kind: 'grass' | 'beach' | 'rock', mask: number): n
 // grass→beach (the level index never increases going down, and rock may skip
 // straight to beach). The top/bottom rooms are not fixed.
 //
-// Between every pair of adjacent rooms sits a single-row wall band. Where the
-// two rectangles horizontally overlap, that row becomes a cliff face except
-// for one 1–3-wide staircase — the "door" between the rooms. Rooms may be
-// horizontally offset from one another, so a room that is wider than (or
-// simply offset from) its neighbor hangs over the sea; its autotiled edge
-// becomes a cliff lip facing the water. Because doors live only on the shared
-// north/south walls (the horizontal bands), a room connects only to the ones
-// directly above and below it — never side by side.
+// Between every pair of adjacent rooms sits a single-row wall band. That row
+// is a cliff face whose width is the full width of the upper room (the wall
+// belongs to the room above), except for one 1–3-wide staircase — the "door"
+// between the rooms — per overlapping pair. Rooms may be horizontally offset
+// from one another, so a room that is wider than (or simply offset from) its
+// neighbor hangs over the sea; its bottom wall still runs the room's whole
+// width, and its autotiled edge becomes a cliff lip facing the water. Because
+// doors live only on the shared north/south walls (the horizontal bands), a
+// room connects only to the ones directly above and below it — never side by
+// side.
 //
 // Generation steps:
 //   1) Room types via the DAG (top→down), biased toward descending.
@@ -415,29 +417,39 @@ function buildRooms(world: World, rand: () => number): void {
     }
   }
 
-  // A wall band with one door per overlapping (upper, lower) room pair. Only
-  // columns claimed by a room on BOTH levels become wall (with a doorway); the
-  // rest of the band row stays open sea. A single room on one level that spans
-  // across several rooms on the level below gets one doorway into *each* of
-  // them, so a room can join multiple rooms up or down. A door must have a
-  // non-sea column on each side (at least a cliff lip) so the stairs never butt
-  // against the open sea at the run's flanks.
+  // A wall band with one door per overlapping (upper, lower) room pair. The
+  // wall face of a room against the level below spans the FULL width of the
+  // upper room — the shared overlap plus any overhang — so a room wider than
+  // the one beneath it hangs its cliff face the entire way across (the sea
+  // under the overhang still shows a complete wall, not a wall that stops where
+  // the rooms stop overlapping). Columns not claimed by an upper room stay open
+  // sea. A single room on one level that spans across several rooms on the
+  // level below gets one doorway into *each* of them, so a room can join
+  // multiple rooms up or down. A door must have a non-sea column on each side
+  // (at least a cliff lip) so the stairs never butt against the open sea at the
+  // run's flanks.
   const stairs: StairRun[] = [];
   for (let z = 0; z < zones.length - 1; z++) {
     const up = zones[z];
     const down = zones[z + 1];
     const bandRow = up[0].y + up[0].height;
-    // Carve the whole wall first so every overlapping column is cliff before
-    // any door is placed — that way a door at a segment edge sees its neighbour
+    // Carve the whole wall first so every needed column is cliff before any
+    // door is placed — that way a door at a segment edge sees its neighbour
     // cell (in an adjacent segment) as cliff, not as unprocessed sea.
     const spans: Array<{ s: number; e: number }> = [];
     for (const u of up) {
+      let joins = false;
       for (const l of down) {
         const s = Math.max(u.x, l.x);
         const e = Math.min(u.x + u.width, l.x + l.width) - 1;
         if (s > e) continue;
+        joins = true;
         spans.push({ s, e });
-        for (let c = s; c <= e; c++) terrain[bandRow][c] = 'cliff';
+      }
+      // Wall width = the upper room's full width (it owns the face), even past
+      // the overlap with the room below.
+      if (joins) {
+        for (let c = u.x; c < u.x + u.width; c++) terrain[bandRow][c] = 'cliff';
       }
     }
     // Place one door per overlapping pair. A door must be walled in on both

@@ -229,11 +229,21 @@ Deno.test('rooms — a room joins every room it overlaps on the level above/belo
         for (let c = 1; c < W - 1; c++) {
           const overUp = up.some((u) => c >= u.x && c < u.x + u.width);
           const overDown = down.some((l) => c >= l.x && c < l.x + l.width);
+          // A joined upper room's wall runs its FULL width, so the part of it
+          // that overhangs the sea (past the room below) still gets a wall.
+          const joinedAbove = up.some(
+            (u) =>
+              c >= u.x && c < u.x + u.width &&
+              down.some((l) => u.x < l.x + l.width && l.x < u.x + u.width),
+          );
           const kind = w.terrain[bandRow][c];
           if (overUp && overDown) {
             assert(kind === 'cliff' || kind === 'stairs', `band tile (${c},${bandRow}) = ${kind}`);
             // The tiles immediately above/below are those rooms' floors.
             assert(WALKABLE.has(w.terrain[bandRow - 1][c]) && WALKABLE.has(w.terrain[bandRow + 1][c]));
+          } else if (overUp && joinedAbove) {
+            // The full-width wall ends past the overlap: only cliff there.
+            assert(kind === 'cliff', `band overhang (${c},${bandRow}) = ${kind}`);
           } else {
             assertEquals(kind, 'sea', `band gap (${c},${bandRow}) should be open sea`);
           }
@@ -254,13 +264,16 @@ Deno.test('rooms — a room joins every room it overlaps on the level above/belo
               assert(doors(bandRow).length >= 1,
                 `seed ${seed}: no door connecting u@${u.x}x${u.width} and l@${l.x}x${l.width}`);
             } else {
-              const bothSea = w.terrain[bandRow][s - 1] === 'sea' && w.terrain[bandRow][s + 1] === 'sea';
-              // A lone column butts against the neighbour span's door on one
-              // side — stamping a door there would put two stair runs flush, so
-              // the column stays a wall instead.
+              // A lone column can open a door only if it lands between two
+              // solid (cliff or stairs) flanks; a sea flank on either side (an
+              // overhang past the carved wall, or a bare edge) means no safe
+              // landing, and a neighbour's stair run flush against it would put
+              // two doors side by side — either way the column stays a wall.
+              const leftSolid = w.terrain[bandRow][s - 1] === 'cliff' || w.terrain[bandRow][s - 1] === 'stairs';
+              const rightSolid = w.terrain[bandRow][s + 1] === 'cliff' || w.terrain[bandRow][s + 1] === 'stairs';
               const flushAgainstDoor =
                 w.terrain[bandRow][s - 1] === 'stairs' || w.terrain[bandRow][s + 1] === 'stairs';
-              assert(doors(bandRow).length >= 1 || bothSea || flushAgainstDoor,
+              assert(doors(bandRow).length >= 1 || !leftSolid || !rightSolid || flushAgainstDoor,
                 `seed ${seed}: lone column ${s} can and should have a door`);
             }
             for (const d of doors(bandRow)) {
