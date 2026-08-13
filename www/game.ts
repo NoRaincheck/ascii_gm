@@ -20,7 +20,7 @@ import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
 const MAP_W = 16;
-const MAP_H = 20;
+const MAP_H = 24;
 const SPEED = 200; // px per second
 const ZOOM = 0.5; // zoom out to show more of the world
 const WORLD_W = MAP_W * TILE; // 1024
@@ -285,19 +285,28 @@ class GameScene extends Phaser.Scene {
   // Animated foam ripples along the coast. Each frame is a 3×3 grid of 64px
   // tiles (192×192 total). The blob is centered on the frame with foam strips
   // extending into the 4 orthogonal neighbor tiles (corners are empty). A sprite
-  // is centered on every land tile that touches water. The opaque beach/grass
-  // tile drawn above (depth -7/-6) hides the blob's full center, and the foam
-  // is masked to the water so only the outer strips show over sea/coast as
-  // ripples — without the mask the blob body bleeds through the transparent
-  // edge speckles of shore tiles (white flecks on grass/beach/rock) and over
-  // the cliff band. The mask covers in-map sea/coast tiles plus a one-tile
-  // off-map border: the strips of edge land tiles ripple out over the ocean
-  // beyond the map bounds (e.g. the south strips of the bottom beach tiles).
-  // Start frames are staggered per tile to avoid lockstep animation.
+  // is centered on every beach/grass/rock/cliff tile that touches water (the
+  // wall bands included, so the cliff face laps foam where it meets the sea).
+  // The opaque beach/grass tile drawn above (depth -7/-6) hides the blob's full
+  // center, and the foam is masked to the water so only the outer strips show
+  // over sea/coast as ripples — without the mask the blob body bleeds through
+  // the transparent edge speckles of shore tiles (white flecks on grass/beach/
+  // rock) and over the cliff band. The mask covers in-map sea/coast tiles plus a
+  // one-tile off-map border: the strips of edge land tiles ripple out over the
+  // ocean beyond the map bounds (e.g. the south strips of the bottom beach
+  // tiles). Start frames are staggered per tile to avoid lockstep animation.
   private buildFoam() {
     const foamSprites: Phaser.GameObjects.Sprite[] = [];
     for (let ty = 0; ty < MAP_H; ty++) {
       for (let tx = 0; tx < MAP_W; tx++) {
+        // Foam ripples hug every terrain edge that meets water — the beach
+        // shore, grass flanks, rock cliff bases, and the wall bands all lap
+        // onto the sea. Wall tiles qualify where the cliff face touches water:
+        // the west/east ends of a wall run, or the wall's south lip where the
+        // room below is narrower than the room above so the wall overhangs
+        // open sea. The water mask below keeps the blob off the land itself.
+        const kind = this.world.terrain[ty][tx];
+        if (kind !== 'beach' && kind !== 'grass' && kind !== 'rock' && kind !== 'cliff') continue;
         if (!landTouchesWater(this.world, tx, ty)) continue;
         const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, 'foam');
         sprite.setDepth(-8);
@@ -477,6 +486,11 @@ export class Game {
   get world(): World {
     const scene = this.phaser.scene.getScene('game') as GameScene | null;
     return scene ? scene.world : null;
+  }
+
+  // Debug hook mirroring `__game.world` — lets tests inspect the rendered scene.
+  get scene(): GameScene | null {
+    return this.phaser.scene.getScene('game') as GameScene | null;
   }
 
   // Direct movement hook for tests/debugging; mirrors the key-driven path.
