@@ -20,7 +20,7 @@ import type { World } from '../lib/game.ts';
 
 const WATER = 0x47aba9;
 const MAP_W = 16;
-const MAP_H = 20;
+const MAP_H = 24;
 const SPEED = 200; // px per second
 const ZOOM = 0.5; // zoom out to show more of the world
 const WORLD_W = MAP_W * TILE; // 1024
@@ -298,6 +298,11 @@ class GameScene extends Phaser.Scene {
     const foamSprites: Phaser.GameObjects.Sprite[] = [];
     for (let ty = 0; ty < MAP_H; ty++) {
       for (let tx = 0; tx < MAP_W; tx++) {
+        // Foam ripples hug every terrain edge that meets water — the beach
+        // shore, grass flanks, and rock cliff bases all lap onto the sea. The
+        // water mask below keeps the blob off the land itself.
+        const kind = this.world.terrain[ty][tx];
+        if (kind !== 'beach' && kind !== 'grass' && kind !== 'rock') continue;
         if (!landTouchesWater(this.world, tx, ty)) continue;
         const sprite = this.add.sprite(tx * TILE + TILE / 2, ty * TILE + TILE / 2, 'foam');
         sprite.setDepth(-8);
@@ -477,6 +482,11 @@ export class Game {
   get world(): World {
     const scene = this.phaser.scene.getScene('game') as GameScene | null;
     return scene ? scene.world : null;
+  }
+
+  // Debug hook mirroring `__game.world` — lets tests inspect the rendered scene.
+  get scene(): GameScene | null {
+    return this.phaser.scene.getScene('game') as GameScene | null;
   }
 
   // Direct movement hook for tests/debugging; mirrors the key-driven path.
