@@ -309,7 +309,42 @@ export function flatTileIndex(kind: 'grass' | 'beach' | 'rock', mask: number): n
 //   3) Random horizontal offsets per room; adjacent pairs are then nudged so
 //      every shared wall still overlaps for a doorway (a door needs just one
 //      shared column, and full-overlap alignment guarantees it).
-//   4) Sea base ← room rects ← wall bands with 1–3-wide stairs at each overlap.
+//   4) Sea base ← rounded room shapes ← wall bands. Painter's order: every
+//      cliff face is carved first, then one 1-wide stair door per overlapping
+//      pair is stamped on top.
+//
+// A level's shape is deterministic, not random: its four corners are scooped by
+// a quarter-circle arc chosen from the span width, so terrace ends always read
+// as rounded/circular curves, and wall bands follow that rounded lid.
+function cornerRadius(spanWidth: number): number {
+  if (spanWidth < 7) return 0; // too narrow: rounding would eat the wall lip
+  return spanWidth >= 10 ? 2 : 1;
+}
+
+function inRoundedRect(
+  tx: number,
+  ty: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  r: number,
+): boolean {
+  if (tx < x0 || tx > x1 || ty < y0 || ty > y1) return false;
+  if (r <= 0) return true;
+  for (
+    const [dx, dy] of [
+      [tx - x0, ty - y0],
+      [x1 - tx, ty - y0],
+      [tx - x0, y1 - ty],
+      [x1 - tx, y1 - ty],
+    ]
+  ) {
+    if (dx * dx + dy * dy <= r * r) return false;
+  }
+  return true;
+}
+
 function buildRooms(world: World, rand: () => number): void {
   const { width, height } = world;
   const seaTop = 1;
@@ -370,9 +405,7 @@ function buildRooms(world: World, rand: () => number): void {
   const spanWidths = spans.map((s) => s.end - s.start + 1);
 
   // Heights: height alone sizes a level's area (span × height).
-  const minH: number[] = LEVEL_TYPES.map((t, z) =>
-    clamp(Math.ceil(areaTarget(t) / spanWidths[z]), MIN_H, MAX_H)
-  );
+  const minH: number[] = LEVEL_TYPES.map((t, z) => clamp(Math.ceil(areaTarget(t) / spanWidths[z]), MIN_H, MAX_H));
   // Rows available for the levels themselves (minus one wall band per boundary).
   const zoneRows = usableRows - (LEVEL_TYPES.length - 1);
   while (minH.reduce((a, b) => a + b, 0) > zoneRows) {
@@ -398,9 +431,7 @@ function buildRooms(world: World, rand: () => number): void {
     let gap = spanWidths[z];
     for (let i = 0; i < counts[z]; i++) {
       const leftover = counts[z] - i - 1;
-      const w = i === counts[z] - 1
-        ? gap
-        : MIN_W + Math.floor(rand() * (gap - leftover * MIN_W - MIN_W + 1));
+      const w = i === counts[z] - 1 ? gap : MIN_W + Math.floor(rand() * (gap - leftover * MIN_W - MIN_W + 1));
       widths.push(w);
       gap -= w;
     }
@@ -415,98 +446,152 @@ function buildRooms(world: World, rand: () => number): void {
   }
   const rooms = zones.flat();
 
-  // ── Terrain: sea base, room rects, then doorway bands ─────────────────────
+  // ── Terrain: sea base, then each level's rounded room shapes ──────────────
+  // The corners of a level's bounding box are cut by a quarter-circle arc, so
+  // terrace ends are rounded curves instead of sharp 90° corners. The arc is
+  // deterministic (driven only by span width), never random — re-seeding just
+  // changes which walls carry doors, not the roundness of the coastline.
+  const levelR = zones.map((_, z) => cornerRadius(spanWidths[z]));
   const terrain: TerrainKind[][] = [];
   for (let ty = 0; ty < height; ty++) terrain.push(new Array<TerrainKind>(width).fill('sea'));
-  for (const r of rooms) {
-    for (let ty = r.y; ty < r.y + r.height; ty++) {
-      for (let tx = r.x; tx < r.x + r.width; tx++) terrain[ty][tx] = r.type;
+  for (let z = 0; z < zones.length; z++) {
+    const x0 = spans[z].start;
+    const x1 = spans[z].end;
+    const y0 = zones[z][0].y;
+    const y1 = y0 + heights[z] - 1;
+    const r = levelR[z];
+    for (const rm of zones[z]) {
+      for (let ty = rm.y; ty < rm.y + rm.height; ty++) {
+        for (let tx = rm.x; tx < rm.x + rm.width; tx++) {
+          if (inRoundedRect(tx, ty, x0, y0, x1, y1, r)) terrain[ty][tx] = rm.type;
+        }
+      }
     }
   }
 
-  // A wall band with one door per overlapping (upper, lower) room pair. The
-  // wall face of a room against the level below spans the FULL width of the
-  // upper room — the shared overlap plus any overhang — so a room wider than
-  // the one beneath it hangs its cliff face the entire way across (the sea
-  // under the overhang still shows a complete wall, not a wall that stops where
-  // the rooms stop overlapping). Columns not claimed by an upper room stay open
-  // sea. A single room on one level that spans across several rooms on the
-  // level below gets one doorway into *each* of them, so a room can join
-  // multiple rooms up or down. A door must have a non-sea column on each side
-  // (at least a cliff lip) so the stairs never butt against the open sea at the
-  // run's flanks.
+  // ── Wall bands, painter's order: every cliff face first, then the doors ──
+  // Each band is the single row *below* the upper level. The wall runs the full
+  // width of a joining upper room (plus its overhang past the room below), but
+  // only through columns the upper level's rounded lid still owns — so the wall
+  // hugs the rounded terrace profile and recedes where the lid was scooped. All
+  // bands are carved before any stair is placed: a door at a segment edge then
+  // always sees its neighbour cell as finished cliff (or sea), never unset.
+  const bandWalls = new Map<number, number[]>();
+  for (let z = 0; z < zones.length - 1; z++) {
+    const up = zones[z];
+    const down = zones[z + 1];
+    const bandRow = up[0].y + up[0].height;
+    const lidY = bandRow - 1;
+    const upX0 = spans[z].start;
+    const upX1 = spans[z].end;
+    const uR = levelR[z];
+    const walled: number[] = [];
+    for (const u of up) {
+      const joins = down.some((l) => u.x < l.x + l.width && l.x < u.x + u.width);
+      if (!joins) continue;
+      for (let c = u.x; c < u.x + u.width; c++) {
+        if (inRoundedRect(c, lidY, upX0, up[0].y, upX1, lidY, uR)) {
+          terrain[bandRow][c] = 'cliff';
+          walled.push(c);
+        }
+      }
+    }
+    bandWalls.set(bandRow, walled);
+  }
+
+  // Stair doors: exactly one width-1 tile per overlapping (upper, lower) room
+  // pair, stamped into the finished wall. A door must keep a wall column
+  // between it and any neighbour door — that single rule forbids doors sitting
+  // flush and keeps the band from forming 2×2 dead blocks. Doors are normally
+  // walled-in on both flanks; a corner scoop may leave only one flank, and an
+  // overlap the rounding scooped out entirely stays a sealed wall (its two
+  // rooms reach each other through their level-mates' doors).
   const stairs: StairRun[] = [];
   for (let z = 0; z < zones.length - 1; z++) {
     const up = zones[z];
     const down = zones[z + 1];
     const bandRow = up[0].y + up[0].height;
-    // Carve the whole wall first so every needed column is cliff before any
-    // door is placed — that way a door at a segment edge sees its neighbour
-    // cell (in an adjacent segment) as cliff, not as unprocessed sea.
-    const spans: Array<{ s: number; e: number }> = [];
+    const wallSet = new Set(bandWalls.get(bandRow)!);
+    const dX0 = spans[z + 1].start;
+    const dX1 = spans[z + 1].end;
+    const dr0 = down[0].y;
+    const dr1 = dr0 + heights[z + 1] - 1;
+    const dR = levelR[z + 1];
+    const lowerIsLand = (c: number): boolean => inRoundedRect(c, dr0, dX0, dr0, dX1, dr1, dR);
+
+    // The overlaps to gate: one per (upper room, lower room) pair.
+    const overlaps: Array<{ s: number; e: number }> = [];
     for (const u of up) {
-      let joins = false;
       for (const l of down) {
         const s = Math.max(u.x, l.x);
         const e = Math.min(u.x + u.width, l.x + l.width) - 1;
         if (s > e) continue;
-        joins = true;
-        spans.push({ s, e });
-      }
-      // Wall width = the upper room's full width (it owns the face), even past
-      // the overlap with the room below.
-      if (joins) {
-        for (let c = u.x; c < u.x + u.width; c++) terrain[bandRow][c] = 'cliff';
+        overlaps.push({ s, e });
       }
     }
-    // Place one door per overlapping pair. A door must be walled in on both
-    // flanks — an actual cliff column on each side, never the open sea and
-    // never another doorway. That single rule forbids stair runs sitting next
-    // to each other: two doors must keep a wall column between them. Because a
-    // door stamped at a segment boundary can steal the lip column a neighbour
-    // span needs, the spans are placed together via a small backtracking
-    // search (a few candidate doors per band) rather than greedily one by one.
-    const options = spans.map(({ s, e }) => {
-      const cands: Array<{ start: number; width: number }> = [];
-      for (let w = Math.min(3, e - s + 1); w >= 1; w--) {
-        for (let st = s; st <= e - w + 1; st++) {
-          const left = st - 1 < 0 ? 'sea' : terrain[bandRow][st - 1];
-          const right = st + w >= world.width ? 'sea' : terrain[bandRow][st + w];
-          if (left === 'cliff' && right === 'cliff') cands.push({ start: st, width: w });
-        }
+
+    // A candidate door is a wall column in the overlap that opens onto land of
+    // the level below. Columns are ranked in tiers — fully walled-in on both
+    // flanks first, then one solid flank, then any wall above land — so the
+    // backtracking search prefers the safest landing while still exploring the
+    // looser ones when a corner scoop squeezes the good columns out. Each tier
+    // is shuffled so the search isn't biased toward either end of the band.
+    const options = overlaps.map(({ s, e }) => {
+      const both: number[] = [];
+      const flank: number[] = [];
+      const any: number[] = [];
+      for (let c = s; c <= e; c++) {
+        if (!wallSet.has(c) || !lowerIsLand(c)) continue;
+        any.push(c);
+        const left = c - 1 < 0 ? 'sea' : terrain[bandRow][c - 1];
+        const right = c + 1 >= world.width ? 'sea' : terrain[bandRow][c + 1];
+        if (left === 'cliff' && right === 'cliff') both.push(c);
+        else if (left === 'cliff' || right === 'cliff') flank.push(c);
       }
-      return shuffleWith(cands, rand);
+      return [...shuffleWith(both, rand), ...shuffleWith(flank, rand), ...shuffleWith(any, rand)];
     });
-    // Doors already chosen for this band, with a one-col wall margin on each
-    // side so neighbours can't sit flush. (start/end are the door body.)
-    const placed: Array<{ start: number; end: number }> = [];
-    const conflicts = ({ start: st, width: w }: { start: number; width: number }): boolean =>
-      placed.some((d) => !(st - 1 > d.end || st + w < d.start));
+
+    // Backtrack: give every overlap a door, keeping doors at least one wall
+    // column apart (no two doors flush, ever).
+    const assigned = new Map<number, number>(); // overlap index → column
+    const conflicts = (c: number): boolean => [...assigned.values()].some((d) => Math.abs(c - d) <= 1);
     const place = (i: number): boolean => {
       if (i === options.length) return true;
-      for (const door of options[i]) {
-        if (conflicts(door)) continue;
-        placed.push({ start: door.start, end: door.start + door.width - 1 });
+      for (const c of options[i]) {
+        if (conflicts(c)) continue;
+        assigned.set(i, c);
         if (place(i + 1)) return true;
-        placed.pop();
+        assigned.delete(i);
       }
       return false;
     };
-    if (place(0)) {
-      for (const door of placed) {
-        for (let c = door.start; c <= door.end; c++) terrain[bandRow][c] = 'stairs';
-        stairs.push({ start: door.start, width: door.end - door.start + 1, row: bandRow });
+    if (!place(0)) {
+      // Greedy fallback: relax the all-flank requirement a column at a time —
+      // first any column with one solid flank, then any wall above land. An
+      // overlap the rounding scooped out entirely (no surviving wall above
+      // land) stays sealed: its two rooms reach each other through their
+      // level-mates' doors, and the terrace's rounded corner stays intact.
+      for (let i = 0; i < overlaps.length; i++) {
+        if (assigned.has(i)) continue;
+        const { s, e } = overlaps[i];
+        const usable = (c: number): boolean => wallSet.has(c) && lowerIsLand(c) && !conflicts(c);
+        let best = -1;
+        for (let c = s; c <= e && best === -1; c++) {
+          const left = c - 1 < 0 ? 'sea' : terrain[bandRow][c - 1];
+          const right = c + 1 >= world.width ? 'sea' : terrain[bandRow][c + 1];
+          if (usable(c) && (left === 'cliff' || right === 'cliff')) best = c;
+        }
+        for (let c = s; c <= e && best === -1; c++) if (usable(c)) best = c;
+        if (best !== -1) assigned.set(i, best);
       }
-    } else {
-      // No non-conflicting assignment covers every span; fall back to greedy so
-      // the level still links up wherever the walls allow.
-      for (const span of spans) {
-        const door = options[spans.indexOf(span)].find((c) => !conflicts(c));
-        if (!door) continue;
-        placed.push({ start: door.start, end: door.start + door.width - 1 });
-        for (let c = door.start; c < door.start + door.width; c++) terrain[bandRow][c] = 'stairs';
-        stairs.push({ start: door.start, width: door.width, row: bandRow });
-      }
+    }
+
+    // Stamp the doors (painter's second pass) and record them, sorted left to
+    // right so world.stairs reads across the row the same way terrain does.
+    const cols = [...assigned.values()].sort((a, b) => a - b);
+    for (const c of cols) {
+      terrain[bandRow][c] = 'stairs';
+      stairs.push({ start: c, width: 1, row: bandRow });
     }
   }
 
@@ -808,8 +893,7 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
     w: (stair.width + 2) * TILE,
     h: 3 * TILE,
   });
-  const solidBlocksDoor = (s: Rect): boolean =>
-    world.stairs.some((stair) => intersects(s, stairCorridor(stair)));
+  const solidBlocksDoor = (s: Rect): boolean => world.stairs.some((stair) => intersects(s, stairCorridor(stair)));
 
   // Remove trees/buildings whose solid footprint overlaps any doorway corridor.
   world.trees = world.trees.filter((t) => !solidBlocksDoor(treeSolid(t)));

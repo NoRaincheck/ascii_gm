@@ -86,7 +86,13 @@ Deno.test('rooms — 3-9 rectangles inside the margins, one kind each, level row
       assert(r.x >= 1 && r.y >= 1 && r.x + r.width <= W - 1 && r.y + r.height <= H - 1, `room in bounds ${r}`);
       for (let ty = r.y; ty < r.y + r.height; ty++) {
         for (let tx = r.x; tx < r.x + r.width; tx++) {
-          assertEquals(w.terrain[ty][tx], r.type, `room fill (seed ${seed}) room ${r} at (${tx},${ty})`);
+          const kind = w.terrain[ty][tx];
+          // Levels are rounded quarter-circle shapes, so a room's bbox corners
+          // spill out into the sea where the terrace curves away.
+          assert(
+            kind === r.type || kind === 'sea',
+            `room fill (seed ${seed}) room ${r} at (${tx},${ty}) = ${kind}, expected ${r.type} (or sea for a rounded corner)`,
+          );
         }
       }
     }
@@ -189,8 +195,10 @@ Deno.test('rooms — types are strictly rock → grass → beach top→down (3 l
     const sigs = [...levels.keys()].sort((a, b) => Number(a.split(',')[0]) - Number(b.split(',')[0]));
     assert(sigs.length === 3, `seed ${seed}: expected exactly 3 levels`);
     const types = sigs.map((s) => levels.get(s)![0].type);
-    assert(types[0] === 'rock' && types[1] === 'grass' && types[2] === 'beach',
-      `seed ${seed}: wrong level order ${types.join('>')}`);
+    assert(
+      types[0] === 'rock' && types[1] === 'grass' && types[2] === 'beach',
+      `seed ${seed}: wrong level order ${types.join('>')}`,
+    );
     // Room list is ordered top→down then left→right, so the level index never rises.
     for (let i = 1; i < w.rooms.length; i++) {
       assert(
@@ -218,76 +226,87 @@ Deno.test('rooms — a single row (a wall band) separates adjacent levels', () =
   }
 });
 
-Deno.test('rooms — a room joins every room it overlaps on the level above/below (door per pair)', () => {
-  for (let seed = 1; seed <= 50; seed++) {
+Deno.test('rooms — wall bands hug the rounded lid; doors are one 1-wide tile per overlapping pair', () => {
+  for (let seed = 1; seed <= 60; seed++) {
     for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
       const levels = levelsOf(w);
       for (let z = 0; z < levels.length - 1; z++) {
         const up = levels[z];
         const down = levels[z + 1];
         const bandRow = up[0].y + up[0].height;
+        // Every wall or stair tile sits directly under walkable lid of the
+        // level above: bands follow the rounded terrace and never float.
         for (let c = 1; c < W - 1; c++) {
-          const overUp = up.some((u) => c >= u.x && c < u.x + u.width);
-          const overDown = down.some((l) => c >= l.x && c < l.x + l.width);
-          // A joined upper room's wall runs its FULL width, so the part of it
-          // that overhangs the sea (past the room below) still gets a wall.
-          const joinedAbove = up.some(
-            (u) =>
-              c >= u.x && c < u.x + u.width &&
-              down.some((l) => u.x < l.x + l.width && l.x < u.x + u.width),
-          );
           const kind = w.terrain[bandRow][c];
-          if (overUp && overDown) {
-            assert(kind === 'cliff' || kind === 'stairs', `band tile (${c},${bandRow}) = ${kind}`);
-            // The tiles immediately above/below are those rooms' floors.
-            assert(WALKABLE.has(w.terrain[bandRow - 1][c]) && WALKABLE.has(w.terrain[bandRow + 1][c]));
-          } else if (overUp && joinedAbove) {
-            // The full-width wall ends past the overlap: only cliff there.
-            assert(kind === 'cliff', `band overhang (${c},${bandRow}) = ${kind}`);
-          } else {
-            assertEquals(kind, 'sea', `band gap (${c},${bandRow}) should be open sea`);
+          if (kind === 'cliff' || kind === 'stairs') {
+            assert(
+              WALKABLE.has(w.terrain[bandRow - 1][c]),
+              `seed ${seed}: band tile (${c},${bandRow}) hangs under open sea`,
+            );
           }
         }
-        // Every overlapping (upper, lower) room pair carries a door, unless its
-        // single overlapping column is flanked on both sides by open sea (no
-        // room for a safe landing).
+        // One 1-wide door per overlapping (upper, lower) room pair. A lone
+        // overlapping column only needs its own door when both neighbours are
+        // solid cliff; a pinch whose every neighbour is open sea or a
+        // neighbour's stair stays sealed (the two rooms reach each other
+        // through their level-mates' doors).  A wider overlap may stay sealed
+        // too if the rounding scooped out every column of the wall band there.
         for (const u of up) {
           for (const l of down) {
             const s = Math.max(u.x, l.x);
             const e = Math.min(u.x + u.width, l.x + l.width) - 1;
             if (s > e) continue;
-            const doors = (row: number): StairRun[] =>
-              w.stairs.filter(
-                (door) => door.row === row && door.start <= e && door.start + door.width - 1 >= s,
-              );
+            const doors = w.stairs.filter(
+              (door) => door.row === bandRow && door.start >= s && door.start <= e,
+            );
+            for (const d of doors) assertEquals(d.width, 1, 'stairs are always 1 tile wide');
             if (e - s + 1 >= 2) {
-              assert(doors(bandRow).length >= 1,
-                `seed ${seed}: no door connecting u@${u.x}x${u.width} and l@${l.x}x${l.width}`);
+              // A door is expected unless the rounding cut every column of the
+              // band (no wall survived), the landing below all fell away, or the
+              // only surviving columns are pinched between doors placed for the
+              // neighbouring overlaps.
+              let canDoor = false;
+              for (const c of Array.from({ length: e - s + 1 }, (_, i) => s + i)) {
+                const k = w.terrain[bandRow][c];
+                if (k !== 'cliff' && k !== 'stairs') continue;
+                const below = w.terrain[bandRow + 1][c];
+                if (!(below === 'grass' || below === 'rock' || below === 'beach' || below === 'stairs')) continue;
+                const leftAdj = c - 1 >= 0 && w.terrain[bandRow][c - 1] === 'stairs';
+                const rightAdj = c + 1 < W && w.terrain[bandRow][c + 1] === 'stairs';
+                if (!leftAdj && !rightAdj) {
+                  canDoor = true;
+                  break;
+                }
+              }
+              if (canDoor) {
+                assert(
+                  doors.length >= 1,
+                  `seed ${seed}: no door between u@${u.x}x${u.width} and l@${l.x}x${l.width} (${s}-${e})`,
+                );
+              }
             } else {
-              // A lone column can open a door only if it lands between two
-              // solid (cliff or stairs) flanks; a sea flank on either side (an
-              // overhang past the carved wall, or a bare edge) means no safe
-              // landing, and a neighbour's stair run flush against it would put
-              // two doors side by side — either way the column stays a wall.
-              const leftSolid = w.terrain[bandRow][s - 1] === 'cliff' || w.terrain[bandRow][s - 1] === 'stairs';
-              const rightSolid = w.terrain[bandRow][s + 1] === 'cliff' || w.terrain[bandRow][s + 1] === 'stairs';
-              const flushAgainstDoor =
-                w.terrain[bandRow][s - 1] === 'stairs' || w.terrain[bandRow][s + 1] === 'stairs';
-              assert(doors(bandRow).length >= 1 || !leftSolid || !rightSolid || flushAgainstDoor,
-                `seed ${seed}: lone column ${s} can and should have a door`);
-            }
-            for (const d of doors(bandRow)) {
-              assert(d.width >= 1 && d.width <= 3, `door ${d.start} should be 1-3 wide`);
+              const left = w.terrain[bandRow][s - 1];
+              const right = w.terrain[bandRow][s + 1];
+              if (left === 'cliff' && right === 'cliff') {
+                assert(doors.length >= 1, `seed ${seed}: flanked lone column ${s} should carry a 1-wide door`);
+              }
             }
           }
         }
-        // The consumer-facing constraint: no stair tile is ever next to water.
+        // Every stair lands on solid ground and keeps at least one wall flank.
         for (const run of stairsRuns(w, bandRow)) {
-          const [rs, re] = run;
-          assert(w.terrain[bandRow][rs - 1] !== 'sea' && w.terrain[bandRow][rs - 1] !== 'coast',
-            `seed ${seed}: stairs run ${rs}-${re} touches water on the left`);
-          assert(w.terrain[bandRow][re + 1] !== 'sea' && w.terrain[bandRow][re + 1] !== 'coast',
-            `seed ${seed}: stairs run ${rs}-${re} touches water on the right`);
+          for (let c = run[0]; c <= run[1]; c++) {
+            assert(
+              WALKABLE.has(w.terrain[bandRow - 1][c]) && WALKABLE.has(w.terrain[bandRow + 1][c]),
+              `seed ${seed}: stair (${c},${bandRow}) is not flanked by land above and below`,
+            );
+            const left = w.terrain[bandRow][c - 1];
+            const right = w.terrain[bandRow][c + 1];
+            assert(
+              left === 'cliff' || right === 'cliff',
+              `seed ${seed}: stair (${c},${bandRow}) sits between open sea on both sides`,
+            );
+          }
         }
       }
     }
@@ -318,14 +337,12 @@ Deno.test('rooms — stair runs are never placed flush against each other', () =
       for (let i = 1; i < runs.length; i++) {
         const prev = runs[i - 1];
         const cur = runs[i];
+        // Doors never sit flush: at least one band column (cliff or, where a
+        // scoop ate the band, sea) must separate two stair runs.
         assert(
           cur.s > prev.e + 1,
           `seed ${seed}: stair runs ${prev.s}-${prev.e} and ${cur.s}-${cur.e} are adjacent (row ${ty})`,
         );
-        // The separating column must be a wall, not another stair run or sea.
-        for (let c = prev.e + 1; c < cur.s; c++) {
-          assertEquals(w.terrain[ty][c], 'cliff', `seed ${seed}: gap column ${c} (row ${ty}) is not a wall`);
-        }
       }
     }
   }
@@ -352,13 +369,82 @@ Deno.test('rooms — wall bands never stack vertically', () => {
   }
 });
 
+Deno.test('rooms — terrace corners are rounded quarter-circles, deterministic per span', () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
+      let sawWideArc = false;
+      for (const level of levelsOf(w)) {
+        const x0 = Math.min(...level.map((r) => r.x));
+        const x1 = Math.max(...level.map((r) => r.x + r.width)) - 1;
+        const span = x1 - x0 + 1;
+        if (span < 7) continue; // too narrow; stays a plain rectangle
+        const y0 = level[0].y;
+        const y1 = y0 + level[0].height - 1;
+        // The four bounding corners of every sizable level are scooped to sea.
+        for (
+          const [tx, ty] of [
+            [x0, y0],
+            [x1, y0],
+            [x0, y1],
+            [x1, y1],
+          ] as Array<[number, number]>
+        ) {
+          assertEquals(
+            w.terrain[ty][tx],
+            'sea',
+            `seed ${seed}: level ${level[0].type} corner (${tx},${ty}) is not rounded`,
+          );
+        }
+        // Wide levels round with a full 2-tile arc, not a bare bevel: the tile
+        // one in from each corner is scooped too.
+        if (span >= 10) {
+          sawWideArc = true;
+          assertEquals(w.terrain[y0][x0 + 1], 'sea', 'wide corner missing arc (top-left)');
+          assertEquals(w.terrain[y0][x1 - 1], 'sea', 'wide corner missing arc (top-right)');
+          assertEquals(w.terrain[y1][x0 + 1], 'sea', 'wide corner missing arc (bottom-left)');
+          assertEquals(w.terrain[y1][x1 - 1], 'sea', 'wide corner missing arc (bottom-right)');
+        }
+      }
+      // The grass level always spans the full width, so every map rounds by a
+      // real arc somewhere.
+      assert(sawWideArc, `seed ${seed}: expected a wide level with a 2-tile arc`);
+    }
+  }
+});
+
+Deno.test('rooms — no 2×2 block of wall or stair tiles ever forms', () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    const w = generateWorld(seed, W, H);
+    for (let ty = 0; ty < H - 1; ty++) {
+      for (let tx = 0; tx < W - 1; tx++) {
+        const solid = (x: number, y: number): boolean => w.terrain[y][x] === 'cliff' || w.terrain[y][x] === 'stairs';
+        assert(
+          !(solid(tx, ty) && solid(tx + 1, ty) && solid(tx, ty + 1) && solid(tx + 1, ty + 1)),
+          `seed ${seed}: 2×2 wall/stair block at (${tx},${ty})`,
+        );
+      }
+    }
+  }
+});
+
 // ── Reachability and physics ───────────────────────────────────────────────
 
 Deno.test('rooms — every walkable tile is reachable through the stairs', () => {
   for (let seed = 1; seed <= 30; seed++) {
     const w = generateWorld(seed, W, H);
-    const sx = w.rooms[0].x;
-    const sy = w.rooms[0].y;
+    // Seed the flood at the first walkable tile (the top-left corner of the
+    // first room may be scooped away by the rounding).
+    let sx = -1;
+    let sy = -1;
+    for (let ty = 0; ty < H && sy === -1; ty++) {
+      for (let tx = 0; tx < W && sy === -1; tx++) {
+        if (WALKABLE.has(w.terrain[ty][tx])) {
+          sx = tx;
+          sy = ty;
+        }
+      }
+    }
+    assert(sy !== -1, `seed ${seed}: found no walkable tile at all`);
     const seen = flood(w, sx, sy);
     for (let ty = 0; ty < H; ty++) {
       for (let tx = 0; tx < W; tx++) {
@@ -413,8 +499,7 @@ Deno.test('foam — wall tiles that meet the sea qualify for foam (landTouchesWa
         const water = (x: number, y: number): boolean =>
           x >= 0 && x < W && y >= 0 && y < H &&
           (w.terrain[y][x] === 'sea' || w.terrain[y][x] === 'coast');
-        const hasWaterNeighbor =
-          water(tx - 1, ty) || water(tx + 1, ty) || water(tx, ty - 1) || water(tx, ty + 1);
+        const hasWaterNeighbor = water(tx - 1, ty) || water(tx + 1, ty) || water(tx, ty - 1) || water(tx, ty + 1);
         if (hasWaterNeighbor) {
           wallWaterSeen++;
           assert(landTouchesWater(w, tx, ty), `seed ${seed}: wall (${tx},${ty}) should touch water`);
@@ -505,8 +590,7 @@ Deno.test('rooms — different seeds produce different room layouts and coastlin
     }
     seaSets.push(ss);
   }
-  const differs = (a: Set<string>, b: Set<string>): boolean =>
-    a.size !== b.size || [...a].some((k) => !b.has(k));
+  const differs = (a: Set<string>, b: Set<string>): boolean => a.size !== b.size || [...a].some((k) => !b.has(k));
   let roomVariety = false;
   let coastVariety = false;
   for (let i = 0; i < roomSets.length && !(roomVariety && coastVariety); i++) {

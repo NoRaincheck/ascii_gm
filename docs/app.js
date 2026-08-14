@@ -139971,6 +139971,23 @@ function flatTileIndex(kind, mask) {
   const base = kind === "beach" ? 5 : 0;
   return row * 10 + base + col;
 }
+function cornerRadius(spanWidth) {
+  if (spanWidth < 7) return 0;
+  return spanWidth >= 10 ? 2 : 1;
+}
+function inRoundedRect(tx, ty, x0, y0, x1, y1, r) {
+  if (tx < x0 || tx > x1 || ty < y0 || ty > y1) return false;
+  if (r <= 0) return true;
+  for (const [dx, dy] of [
+    [tx - x0, ty - y0],
+    [x1 - tx, ty - y0],
+    [tx - x0, y1 - ty],
+    [x1 - tx, y1 - ty]
+  ]) {
+    if (dx * dx + dy * dy <= r * r) return false;
+  }
+  return true;
+}
 function buildRooms(world, rand) {
   const { width, height } = world;
   const seaTop = 1;
@@ -140007,9 +140024,7 @@ function buildRooms(world, rand) {
     return { start, end };
   });
   const spanWidths = spans.map((s) => s.end - s.start + 1);
-  const minH = LEVEL_TYPES.map(
-    (t, z) => clamp(Math.ceil(areaTarget(t) / spanWidths[z]), MIN_H, MAX_H)
-  );
+  const minH = LEVEL_TYPES.map((t, z) => clamp(Math.ceil(areaTarget(t) / spanWidths[z]), MIN_H, MAX_H));
   const zoneRows = usableRows - (LEVEL_TYPES.length - 1);
   while (minH.reduce((a, b) => a + b, 0) > zoneRows) {
     const i = minH.indexOf(Math.max(...minH));
@@ -140045,68 +140060,111 @@ function buildRooms(world, rand) {
     top += heights[z] + 1;
   }
   const rooms = zones.flat();
+  const levelR = zones.map((_, z) => cornerRadius(spanWidths[z]));
   const terrain = [];
   for (let ty = 0; ty < height; ty++) terrain.push(new Array(width).fill("sea"));
-  for (const r of rooms) {
-    for (let ty = r.y; ty < r.y + r.height; ty++) {
-      for (let tx = r.x; tx < r.x + r.width; tx++) terrain[ty][tx] = r.type;
+  for (let z = 0; z < zones.length; z++) {
+    const x0 = spans[z].start;
+    const x1 = spans[z].end;
+    const y0 = zones[z][0].y;
+    const y1 = y0 + heights[z] - 1;
+    const r = levelR[z];
+    for (const rm of zones[z]) {
+      for (let ty = rm.y; ty < rm.y + rm.height; ty++) {
+        for (let tx = rm.x; tx < rm.x + rm.width; tx++) {
+          if (inRoundedRect(tx, ty, x0, y0, x1, y1, r)) terrain[ty][tx] = rm.type;
+        }
+      }
     }
+  }
+  const bandWalls = /* @__PURE__ */ new Map();
+  for (let z = 0; z < zones.length - 1; z++) {
+    const up = zones[z];
+    const down = zones[z + 1];
+    const bandRow = up[0].y + up[0].height;
+    const lidY = bandRow - 1;
+    const upX0 = spans[z].start;
+    const upX1 = spans[z].end;
+    const uR = levelR[z];
+    const walled = [];
+    for (const u of up) {
+      const joins = down.some((l) => u.x < l.x + l.width && l.x < u.x + u.width);
+      if (!joins) continue;
+      for (let c = u.x; c < u.x + u.width; c++) {
+        if (inRoundedRect(c, lidY, upX0, up[0].y, upX1, lidY, uR)) {
+          terrain[bandRow][c] = "cliff";
+          walled.push(c);
+        }
+      }
+    }
+    bandWalls.set(bandRow, walled);
   }
   const stairs = [];
   for (let z = 0; z < zones.length - 1; z++) {
     const up = zones[z];
     const down = zones[z + 1];
     const bandRow = up[0].y + up[0].height;
-    const spans2 = [];
+    const wallSet = new Set(bandWalls.get(bandRow));
+    const dX0 = spans[z + 1].start;
+    const dX1 = spans[z + 1].end;
+    const dr0 = down[0].y;
+    const dr1 = dr0 + heights[z + 1] - 1;
+    const dR = levelR[z + 1];
+    const lowerIsLand = (c) => inRoundedRect(c, dr0, dX0, dr0, dX1, dr1, dR);
+    const overlaps = [];
     for (const u of up) {
-      let joins = false;
       for (const l of down) {
         const s = Math.max(u.x, l.x);
         const e = Math.min(u.x + u.width, l.x + l.width) - 1;
         if (s > e) continue;
-        joins = true;
-        spans2.push({ s, e });
-      }
-      if (joins) {
-        for (let c = u.x; c < u.x + u.width; c++) terrain[bandRow][c] = "cliff";
+        overlaps.push({ s, e });
       }
     }
-    const options = spans2.map(({ s, e }) => {
-      const cands = [];
-      for (let w = Math.min(3, e - s + 1); w >= 1; w--) {
-        for (let st = s; st <= e - w + 1; st++) {
-          const left = st - 1 < 0 ? "sea" : terrain[bandRow][st - 1];
-          const right = st + w >= world.width ? "sea" : terrain[bandRow][st + w];
-          if (left === "cliff" && right === "cliff") cands.push({ start: st, width: w });
-        }
+    const options = overlaps.map(({ s, e }) => {
+      const both = [];
+      const flank = [];
+      const any = [];
+      for (let c = s; c <= e; c++) {
+        if (!wallSet.has(c) || !lowerIsLand(c)) continue;
+        any.push(c);
+        const left = c - 1 < 0 ? "sea" : terrain[bandRow][c - 1];
+        const right = c + 1 >= world.width ? "sea" : terrain[bandRow][c + 1];
+        if (left === "cliff" && right === "cliff") both.push(c);
+        else if (left === "cliff" || right === "cliff") flank.push(c);
       }
-      return shuffleWith(cands, rand);
+      return [...shuffleWith(both, rand), ...shuffleWith(flank, rand), ...shuffleWith(any, rand)];
     });
-    const placed = [];
-    const conflicts = ({ start: st, width: w }) => placed.some((d) => !(st - 1 > d.end || st + w < d.start));
+    const assigned = /* @__PURE__ */ new Map();
+    const conflicts = (c) => [...assigned.values()].some((d) => Math.abs(c - d) <= 1);
     const place = (i) => {
       if (i === options.length) return true;
-      for (const door of options[i]) {
-        if (conflicts(door)) continue;
-        placed.push({ start: door.start, end: door.start + door.width - 1 });
+      for (const c of options[i]) {
+        if (conflicts(c)) continue;
+        assigned.set(i, c);
         if (place(i + 1)) return true;
-        placed.pop();
+        assigned.delete(i);
       }
       return false;
     };
-    if (place(0)) {
-      for (const door of placed) {
-        for (let c = door.start; c <= door.end; c++) terrain[bandRow][c] = "stairs";
-        stairs.push({ start: door.start, width: door.end - door.start + 1, row: bandRow });
+    if (!place(0)) {
+      for (let i = 0; i < overlaps.length; i++) {
+        if (assigned.has(i)) continue;
+        const { s, e } = overlaps[i];
+        const usable = (c) => wallSet.has(c) && lowerIsLand(c) && !conflicts(c);
+        let best = -1;
+        for (let c = s; c <= e && best === -1; c++) {
+          const left = c - 1 < 0 ? "sea" : terrain[bandRow][c - 1];
+          const right = c + 1 >= world.width ? "sea" : terrain[bandRow][c + 1];
+          if (usable(c) && (left === "cliff" || right === "cliff")) best = c;
+        }
+        for (let c = s; c <= e && best === -1; c++) if (usable(c)) best = c;
+        if (best !== -1) assigned.set(i, best);
       }
-    } else {
-      for (const span of spans2) {
-        const door = options[spans2.indexOf(span)].find((c) => !conflicts(c));
-        if (!door) continue;
-        placed.push({ start: door.start, end: door.start + door.width - 1 });
-        for (let c = door.start; c < door.start + door.width; c++) terrain[bandRow][c] = "stairs";
-        stairs.push({ start: door.start, width: door.width, row: bandRow });
-      }
+    }
+    const cols = [...assigned.values()].sort((a, b) => a - b);
+    for (const c of cols) {
+      terrain[bandRow][c] = "stairs";
+      stairs.push({ start: c, width: 1, row: bandRow });
     }
   }
   world.terrain = terrain;
