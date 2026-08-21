@@ -1,5 +1,15 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { canOccupyAt, generateWorld, landTouchesWater, TILE } from '../lib/game.ts';
+import {
+  canOccupyAt,
+  EDGE_E,
+  EDGE_N,
+  EDGE_S,
+  EDGE_W,
+  flatEdgeMask,
+  generateWorld,
+  landTouchesWater,
+  TILE,
+} from '../lib/game.ts';
 import type { Room, StairRun, World } from '../lib/game.ts';
 
 const W = 16;
@@ -464,6 +474,40 @@ Deno.test('foam — wall tiles that meet the sea qualify for foam (landTouchesWa
   assert(wallWaterSeen > 0, 'expected some cliff tiles to touch water');
   // Interior wall spans (the face above a room) stay sealed away from water.
   assert(wallIsolatedSeen > 0, 'expected some cliff tiles to be sealed from water');
+});
+
+Deno.test('beach autotile — rimmed against walls and doors, never against grass (issue #13)', () => {
+  const EDGE_OF: Record<string, number> = {
+    '0,-1': EDGE_N,
+    '0,1': EDGE_S,
+    '-1,0': EDGE_W,
+    '1,0': EDGE_E,
+  };
+  let walledSeen = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
+      for (let ty = 0; ty < w.height; ty++) {
+        for (let tx = 0; tx < w.width; tx++) {
+          if (w.terrain[ty][tx] !== 'beach') continue;
+          const mask = flatEdgeMask(w, tx, ty, 'beach');
+          for (const [dxdy, bit] of Object.entries(EDGE_OF)) {
+            const [dx, dy] = dxdy.split(',').map(Number);
+            const n = ty + dy >= 0 && ty + dy < w.height && tx + dx >= 0 && tx + dx < w.width
+              ? w.terrain[ty + dy][tx + dx]
+              : 'sea';
+            if (n === 'cliff' || n === 'stairs') {
+              assert((mask & bit) !== 0, `seed ${seed}: beach (${tx},${ty}) unrimmed vs ${n} ${dxdy}`);
+              walledSeen++;
+            }
+            if (n === 'grass' || n === 'rock') {
+              assertEquals(mask & bit, 0, `seed ${seed}: beach (${tx},${ty}) rims against ${n} ${dxdy}`);
+            }
+          }
+        }
+      }
+    }
+  }
+  assert(walledSeen > 0, 'expected some beach tiles adjacent to walls/doors');
 });
 
 // ── Landmarks ──────────────────────────────────────────────────────────────

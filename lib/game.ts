@@ -253,7 +253,9 @@ export function landTouchesWater(world: World, tx: number, ty: number): boolean 
 
 // Autotile border mask for a grass/beach/rock tile: a border is drawn on each
 // side where the region meets a "lower" terrain kind — grass against beach/coast/rock/sea,
-// beach against coast/sea, rock against sea. Bits are EDGE_N/S/W/E.
+// beach against coast/sea plus cliff/stairs walls (so sand is rimmed where it
+// abuts a wall face or doorway instead of ending flat), rock against sea. Bits
+// are EDGE_N/S/W/E.
 export function flatEdgeMask(world: World, tx: number, ty: number, kind: 'grass' | 'beach' | 'rock'): number {
   let mask = 0;
   const neighbors: Array<[number, number, number]> = [
@@ -267,7 +269,7 @@ export function flatEdgeMask(world: World, tx: number, ty: number, kind: 'grass'
     const border = kind === 'grass'
       ? n !== 'grass'
       : kind === 'beach'
-      ? n === 'coast' || n === 'sea'
+      ? n === 'coast' || n === 'sea' || n === 'cliff' || n === 'stairs'
       : /* rock */ n === 'sea';
     if (border) mask |= bit;
   }

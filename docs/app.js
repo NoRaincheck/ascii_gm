@@ -139953,7 +139953,7 @@ function flatEdgeMask(world, tx, ty, kind) {
   ];
   for (const [dx, dy, bit] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
-    const border = kind === "grass" ? n !== "grass" : kind === "beach" ? n === "coast" || n === "sea" : (
+    const border = kind === "grass" ? n !== "grass" : kind === "beach" ? n === "coast" || n === "sea" || n === "cliff" || n === "stairs" : (
       /* rock */
       n === "sea"
     );
