@@ -80,7 +80,11 @@ Deno.test('rooms — the map is framed by sea margins', () => {
     const w = generateWorld(seed, W, H);
     for (let tx = 0; tx < W; tx++) {
       assertEquals(w.terrain[0][tx], 'sea', `top edge (seed ${seed})`);
-      assertEquals(w.terrain[H - 1][tx], 'sea', `bottom edge (seed ${seed})`);
+      // The south margin may carry shore walls dropped under rock/grass lips.
+      assert(
+        w.terrain[H - 1][tx] === 'sea' || w.terrain[H - 1][tx] === 'cliff',
+        `bottom edge (seed ${seed}): ${w.terrain[H - 1][tx]}`,
+      );
     }
     for (let ty = 0; ty < H; ty++) {
       assertEquals(w.terrain[ty][0], 'sea', `left edge (seed ${seed})`);
@@ -196,9 +200,47 @@ Deno.test('rooms — wall bands never stack vertically', () => {
           w.terrain[ty - 1][tx] !== 'cliff' && w.terrain[ty - 1][tx] !== 'stairs',
           `seed ${seed}: wall stacked vertically at (${tx},${ty})`,
         );
-        assert(
-          w.terrain[ty + 1][tx] !== 'cliff' && w.terrain[ty + 1][tx] !== 'stairs',
-          `seed ${seed}: wall stacked vertically at (${tx},${ty})`,
+        if (ty + 1 < H) {
+          assert(
+            w.terrain[ty + 1][tx] !== 'cliff' && w.terrain[ty + 1][tx] !== 'stairs',
+            `seed ${seed}: wall stacked vertically at (${tx},${ty})`,
+          );
+        }
+      }
+    }
+  }
+});
+
+Deno.test('rooms — rock/grass never touch open water on their south side (issue #13)', () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
+      let shoreWall: { tx: number; ty: number } | null = null;
+      for (let ty = 0; ty < w.height - 1; ty++) {
+        for (let tx = 0; tx < w.width; tx++) {
+          const k = w.terrain[ty][tx];
+          if (k !== 'rock' && k !== 'grass' && k !== 'beach') continue;
+          const south = w.terrain[ty + 1][tx];
+          if (south !== 'sea') continue;
+          // Only a beach lip may face open water as a sandy shore.
+          assertEquals(k, 'beach', `seed ${seed}: ${k} lip at (${tx},${ty}) meets the sea bare`);
+        }
+        // Remember one dropped shore wall (cliff over sea) for the body check.
+        for (let tx = 0; tx < w.width && !shoreWall; tx++) {
+          if (
+            w.terrain[ty][tx] === 'cliff' &&
+            (w.terrain[ty - 1][tx] === 'rock' || w.terrain[ty - 1][tx] === 'grass') &&
+            (ty + 1 >= w.height || w.terrain[ty + 1][tx] === 'sea')
+          ) {
+            shoreWall = { tx, ty };
+          }
+        }
+      }
+      // A shore wall is impassable ground for the character's body.
+      if (shoreWall) {
+        assertEquals(
+          canOccupyAt(w, shoreWall.tx * TILE + TILE / 2, shoreWall.ty * TILE + TILE / 2),
+          false,
+          `seed ${seed}: shore wall at (${shoreWall.tx},${shoreWall.ty}) should be impassable`,
         );
       }
     }
@@ -400,9 +442,11 @@ Deno.test('foam — wall tiles that meet the sea qualify for foam (landTouchesWa
     for (let ty = 0; ty < H; ty++) {
       for (let tx = 0; tx < W; tx++) {
         if (w.terrain[ty][tx] !== 'cliff') continue;
+        // Out-of-map counts as water, matching terrainAt() — shore walls on
+        // the map's bottom edge hang over the sea (and the off-map mask).
         const water = (x: number, y: number): boolean =>
-          x >= 0 && x < W && y >= 0 && y < H &&
-          (w.terrain[y][x] === 'sea' || w.terrain[y][x] === 'coast');
+          x < 0 || x >= W || y < 0 || y >= H ||
+          w.terrain[y][x] === 'sea' || w.terrain[y][x] === 'coast';
         const hasWaterNeighbor =
           water(tx - 1, ty) || water(tx + 1, ty) || water(tx, ty - 1) || water(tx, ty + 1);
         if (hasWaterNeighbor) {
@@ -575,10 +619,14 @@ Deno.test('rooms — builds on smaller and larger maps too', () => {
         assert(WALKABLE.has(w.terrain[stair.row - 1][stair.start + Math.floor(stair.width / 2)]));
         assert(WALKABLE.has(w.terrain[stair.row + 1][stair.start + Math.floor(stair.width / 2)]));
       }
-      // Sea margins hold on every size.
+      // Sea margins hold on every size (the south margin may carry shore
+      // walls dropped under rock/grass lips).
       for (let tx = 0; tx < mw; tx++) {
         assertEquals(w.terrain[0][tx], 'sea');
-        assertEquals(w.terrain[mh - 1][tx], 'sea');
+        assert(
+          w.terrain[mh - 1][tx] === 'sea' || w.terrain[mh - 1][tx] === 'cliff',
+          `${mw}x${mh} seed ${seed}: bottom edge ${w.terrain[mh - 1][tx]}`,
+        );
       }
     }
   }

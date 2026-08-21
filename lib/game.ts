@@ -294,7 +294,11 @@ export function flatTileIndex(kind: 'grass' | 'beach' | 'rock', mask: number): n
 // terraces descend from the top of the map toward the sea: walking down any
 // column, the room level never rises (rock→grass/beach, grass→beach, repeats
 // allowed), and every higher room keeps a cliff wall along its whole bottom
-// edge wherever another room lies below it. Terraces are NOT full-width slabs:
+// edge wherever another room lies below it. Rock and grass never meet open
+// water on their south side either: wherever such a lip faces the sea (a
+// non-beach bottom terrace, or a flank column the lower terraces skip), an
+// impassable wall tile is dropped into the water below it — only beach ends
+// in a walkable sandy shore. Terraces are NOT full-width slabs:
 // each covers its own column range (open sea at the flanks is common), and
 // their heights wander along the range in small steps, so wall bands follow
 // jagged, stepped curves instead of straight lines — a terrace's south lip can
@@ -317,7 +321,8 @@ export function flatTileIndex(kind: 'grass' | 'beach' | 'rock', mask: number): n
 //      clamped so everything fits above the southern sea margin.
 //   4) Each terrace splits into 1–3 flush side-by-side rooms.
 //   5) Sea base ← room rects ← wall bands under every upper bottom edge ←
-//      doors per adjacent pair ← flood-fill connectivity validation.
+//      shore walls under every rock/grass lip facing open sea ← doors per
+//      adjacent pair ← flood-fill connectivity validation.
 function buildRooms(world: World, rand: () => number): void {
   const { width, height } = world;
   const seaTop = 1;
@@ -544,7 +549,9 @@ function buildRooms(world: World, rand: () => number): void {
     // Walls: scan each column top→down; wherever a floor run ends and another
     // begins two rows later, the row between becomes the upper room's cliff
     // face — the wall hugs the actual stepped bottom edge. A run whose south
-    // is open water is the local shore and gets no wall.
+    // is open water is the local shore: beach stays a walkable sandy shore,
+    // but rock and grass get an impassable wall tile dropped into the water
+    // directly below their lip — they never touch open sea on the south side.
     const isFloor = (ty: number, c: number): boolean => {
       const k = terrain[ty][c];
       return k === 'rock' || k === 'grass' || k === 'beach';
@@ -559,6 +566,9 @@ function buildRooms(world: World, rand: () => number): void {
         let b = ty;
         while (b + 1 <= bottomRow && isFloor(b + 1, c)) b++;
         if (b + 2 <= bottomRow && isFloor(b + 2, c)) terrain[b + 1][c] = 'cliff';
+        else if (terrain[ty][c] !== 'beach' && terrain[b + 1][c] === 'sea') {
+          terrain[b + 1][c] = 'cliff'; // shore wall under a rock/grass lip
+        }
         ty = b + 2;
       }
     }

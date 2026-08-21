@@ -140149,6 +140149,9 @@ function buildRooms(world, rand) {
         let b = ty;
         while (b + 1 <= bottomRow && isFloor(b + 1, c)) b++;
         if (b + 2 <= bottomRow && isFloor(b + 2, c)) terrain[b + 1][c] = "cliff";
+        else if (terrain[ty][c] !== "beach" && terrain[b + 1][c] === "sea") {
+          terrain[b + 1][c] = "cliff";
+        }
         ty = b + 2;
       }
     }

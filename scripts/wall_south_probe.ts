@@ -1,5 +1,8 @@
-// Probe: can a tile with sea touching its SOUTH ever be a wall (cliff)?
-// Sweeps seeds/sizes, records the kind of every tile's south neighbor.
+// Probe: which walls are allowed to hang over sea on their SOUTH side?
+// Issue #13: rock/grass lips facing open water get a shore wall dropped into
+// the water below them, so a cliff MAY have sea south — but only when the
+// floor directly above is rock/grass (the lip it guards). Band walls (above
+// another band row or stairs) must still always have ground beneath them.
 import { generateWorld, type World } from '../lib/game.ts';
 
 function check(seed: number, w: number, h: number): string[] {
@@ -10,8 +13,11 @@ function check(seed: number, w: number, h: number): string[] {
     for (let x = 0; x < w; x++) {
       const kind = t[y][x];
       const south = y + 1 < h ? t[y + 1][x] : 'sea'; // out-of-bounds south is sea margin
-      if (kind === 'cliff' && (south === 'sea' || south === 'coast')) {
-        errs.push(`cliff with water south at ${x},${y} (south=${south})`);
+      if (kind !== 'cliff' || (south !== 'sea' && south !== 'coast')) continue;
+      const above = y > 0 ? t[y - 1][x] : 'sea';
+      const isShoreWall = above === 'rock' || above === 'grass';
+      if (!isShoreWall) {
+        errs.push(`band wall over water at ${x},${y} (south=${south}, above=${above})`);
       }
     }
   }
