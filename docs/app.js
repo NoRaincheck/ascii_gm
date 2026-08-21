@@ -139985,134 +139985,282 @@ function buildRooms(world, rand) {
   const MIN_H = 3;
   const MAX_H = 9;
   const MIN_W = 4;
-  const LEVEL_TYPES = ["rock", "grass", "beach"];
-  const usableCells = usableRows * usableCols;
-  const areaTarget = (t) => {
-    const pct = t === "rock" ? 0.18 : t === "grass" ? 0.22 : 0.26;
-    return Math.round(usableCells * pct);
+  const curve = (len, amp, minRun = 1) => {
+    const out = [];
+    let o = 0;
+    let i = 0;
+    while (i < len) {
+      const run = minRun + Math.floor(rand() * (3 - minRun + 1));
+      const r = rand();
+      o = clamp(o + (r < 0.25 ? -1 : r < 0.75 ? 0 : 1), -amp, amp);
+      for (let k = 0; k < run && i < len; k++, i++) out.push(o);
+    }
+    return out;
   };
-  const maxRooms = clamp(Math.floor(usableCols / MIN_W), 1, 3);
-  const counts = LEVEL_TYPES.map(() => 1 + Math.floor(rand() * maxRooms));
-  const spans = LEVEL_TYPES.map((_, z) => {
-    const marginL = z === 1 ? 0 : Math.floor(rand() * 3);
-    const marginR = z === 1 ? 0 : Math.floor(rand() * 3);
-    let start = leftCol + marginL;
-    let end = rightCol - marginR;
-    const need = Math.min(counts[z] * MIN_W, usableCols);
-    if (end - start + 1 < need) {
-      const over = need - (end - start + 1);
-      start = clamp(start - over, leftCol, rightCol);
-      end = clamp(end + over, leftCol, rightCol);
+  const weightedPick = (items, weights) => {
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = rand() * total;
+    for (let i = 0; i < items.length; i++) {
+      r -= weights[i];
+      if (r < 0) return items[i];
     }
-    return { start, end };
-  });
-  const spanWidths = spans.map((s) => s.end - s.start + 1);
-  const minH = LEVEL_TYPES.map(
-    (t, z) => clamp(Math.ceil(areaTarget(t) / spanWidths[z]), MIN_H, MAX_H)
-  );
-  const zoneRows = usableRows - (LEVEL_TYPES.length - 1);
-  while (minH.reduce((a, b) => a + b, 0) > zoneRows) {
-    const i = minH.indexOf(Math.max(...minH));
-    minH[i] = Math.max(MIN_H, minH[i] - 1);
-  }
-  const heights = [...minH];
-  let extra = zoneRows - heights.reduce((a, b) => a + b, 0);
-  for (const i of shuffleWith([0, 1, 2], rand)) {
-    while (extra > 0 && heights[i] < MAX_H) {
-      heights[i]++;
-      extra--;
-    }
-    if (extra <= 0) break;
-  }
-  const zones = [];
-  let top = topRow;
-  for (let z = 0; z < LEVEL_TYPES.length; z++) {
-    const widths = [];
-    let gap = spanWidths[z];
-    for (let i = 0; i < counts[z]; i++) {
-      const leftover = counts[z] - i - 1;
-      const w = i === counts[z] - 1 ? gap : MIN_W + Math.floor(rand() * (gap - leftover * MIN_W - MIN_W + 1));
-      widths.push(w);
-      gap -= w;
-    }
-    const levelRooms = [];
-    let x = spans[z].start;
-    for (const w of widths) {
-      levelRooms.push({ type: LEVEL_TYPES[z], x, y: top, width: w, height: heights[z] });
-      x += w;
-    }
-    zones.push(levelRooms);
-    top += heights[z] + 1;
-  }
-  const rooms = zones.flat();
-  const terrain = [];
-  for (let ty = 0; ty < height; ty++) terrain.push(new Array(width).fill("sea"));
-  for (const r of rooms) {
-    for (let ty = r.y; ty < r.y + r.height; ty++) {
-      for (let tx = r.x; tx < r.x + r.width; tx++) terrain[ty][tx] = r.type;
-    }
-  }
-  const stairs = [];
-  for (let z = 0; z < zones.length - 1; z++) {
-    const up = zones[z];
-    const down = zones[z + 1];
-    const bandRow = up[0].y + up[0].height;
-    const spans2 = [];
-    for (const u of up) {
-      let joins = false;
-      for (const l of down) {
-        const s = Math.max(u.x, l.x);
-        const e = Math.min(u.x + u.width, l.x + l.width) - 1;
-        if (s > e) continue;
-        joins = true;
-        spans2.push({ s, e });
+    return items[items.length - 1];
+  };
+  const drawLayout = () => {
+    const kMax = clamp(Math.floor((usableRows - 2) / (MIN_H + 2)), 1, 4);
+    const kChoices = [2, 3, 4].filter((k) => k <= kMax);
+    const K = kChoices.length === 0 ? 1 : weightedPick(
+      kChoices,
+      kChoices.map((k) => k === 2 ? 0.2 : k === 3 ? 0.55 : 0.25)
+    );
+    const types = [];
+    let lvl = rand() < 0.7 ? 2 : 1;
+    for (let i = 0; i < K; i++) {
+      if (i > 0) {
+        const r = rand();
+        const last = i === K - 1;
+        if (lvl === 2) {
+          if (last) lvl = r < 0.7 ? 0 : 1;
+          else if (r >= 0.25) lvl = r < 0.8 ? 1 : 0;
+        } else if (lvl === 1) {
+          if (last) {
+            if (r >= 0.35) lvl = 0;
+          } else if (r >= 0.3) lvl = 0;
+        }
       }
-      if (joins) {
-        for (let c = u.x; c < u.x + u.width; c++) terrain[bandRow][c] = "cliff";
+      types.push(lvl === 2 ? "rock" : lvl === 1 ? "grass" : "beach");
+    }
+    if (types.every((t) => t === types[0]) && K >= 2) {
+      const drop = { rock: "grass", grass: "beach", beach: "grass" };
+      types[K - 1] = drop[types[K - 1]];
+    }
+    const zoneRows = usableRows - (K - 1);
+    const distributable = Math.max(K * MIN_H, zoneRows - 1);
+    const hNom = new Array(K).fill(MIN_H);
+    let extra = distributable - K * MIN_H;
+    while (extra > 0) {
+      let progressed = false;
+      for (const i of shuffleWith([...Array(K).keys()], rand)) {
+        if (extra <= 0) break;
+        if (hNom[i] < MAX_H) {
+          hNom[i]++;
+          extra--;
+          progressed = true;
+        }
+      }
+      if (!progressed) break;
+    }
+    const gML = rand() < 0.45 ? 0 : Math.floor(rand() * 3);
+    const gMR = rand() < 0.45 ? 0 : Math.floor(rand() * 3);
+    const ranges = [];
+    let prev = { start: leftCol + gML, end: rightCol - gMR };
+    for (let z = 1; z < K; z++) {
+      let start = leftCol + Math.floor(rand() * (Math.min(prev.end - 2, rightCol - MIN_W + 1) - leftCol + 1));
+      const minEnd = Math.max(start + MIN_W - 1, prev.start + 2);
+      let end = minEnd + Math.floor(rand() * (rightCol - minEnd + 1));
+      const s2 = start + (rand() < 0.25 ? 1 : 0);
+      const e2 = end - (rand() < 0.25 ? 1 : 0);
+      if (e2 - s2 + 1 >= MIN_W && s2 <= prev.end - 2 && e2 >= prev.start + 2) {
+        start = s2;
+        end = e2;
+      }
+      ranges.push({ start, end });
+      prev = { start, end };
+    }
+    ranges.unshift({
+      start: Math.min(leftCol + gML, ...ranges.map((r) => r.start)),
+      end: Math.max(rightCol - gMR, ...ranges.map((r) => r.end))
+    });
+    const terraces = [];
+    for (let z = 0; z < K; z++) {
+      const { start, end } = ranges[z];
+      const len = end - start + 1;
+      terraces.push({
+        type: types[z],
+        start,
+        end,
+        hNom: hNom[z],
+        // The crown's north edge is the shoreline: wiggle it in wider steps
+        // (min run 2) so the coast steps cleanly instead of needling.
+        jit: curve(len, 1, z === 0 ? 2 : 1),
+        top: new Array(len).fill(0),
+        bottom: new Array(len).fill(0)
+      });
+    }
+    for (let c = leftCol; c <= rightCol; c++) {
+      const covering = terraces.filter((t) => t.start <= c && c <= t.end);
+      let cur = -1;
+      for (let idx = 0; idx < covering.length; idx++) {
+        const t = covering[idx];
+        const ci = c - t.start;
+        if (idx === 0) {
+          cur = topRow + Math.max(0, t.jit[ci]);
+        }
+        const m = covering.length - idx - 1;
+        let h = clamp(t.hNom + t.jit[ci], MIN_H, MAX_H);
+        h = Math.min(h, bottomRow - cur + 1 - m * (MIN_H + 1));
+        if (h < MIN_H) return null;
+        t.top[ci] = cur;
+        t.bottom[ci] = cur + h - 1;
+        cur = t.bottom[ci] + 2;
       }
     }
-    const options = spans2.map(({ s, e }) => {
+    const rooms = [];
+    for (const t of terraces) {
+      const spanW = t.end - t.start + 1;
+      const maxRooms = clamp(Math.floor(spanW / MIN_W), 1, 3);
+      const count = 1 + Math.floor(rand() * maxRooms);
+      const widths = [];
+      let gap = spanW;
+      for (let i = 0; i < count; i++) {
+        const leftover = count - i - 1;
+        const w = i === count - 1 ? gap : MIN_W + Math.floor(rand() * (gap - leftover * MIN_W - MIN_W + 1));
+        widths.push(w);
+        gap -= w;
+      }
+      let x = t.start;
+      for (const w of widths) {
+        const tops = t.top.slice(x - t.start, x - t.start + w);
+        const bottoms = t.bottom.slice(x - t.start, x - t.start + w);
+        const y = Math.min(...tops);
+        const yMax = Math.max(...bottoms);
+        rooms.push({ type: t.type, x, y, width: w, height: yMax - y + 1, tops, bottoms });
+        x += w;
+      }
+    }
+    const terrain = [];
+    for (let ty = 0; ty < height; ty++) terrain.push(new Array(width).fill("sea"));
+    for (const r of rooms) {
+      for (let i = 0; i < r.width; i++) {
+        for (let ty = r.tops[i]; ty <= r.bottoms[i]; ty++) terrain[ty][r.x + i] = r.type;
+      }
+    }
+    const isFloor = (ty, c) => {
+      const k = terrain[ty][c];
+      return k === "rock" || k === "grass" || k === "beach";
+    };
+    for (let c = leftCol; c <= rightCol; c++) {
+      let ty = topRow;
+      while (ty <= bottomRow) {
+        if (!isFloor(ty, c)) {
+          ty++;
+          continue;
+        }
+        let b = ty;
+        while (b + 1 <= bottomRow && isFloor(b + 1, c)) b++;
+        if (b + 2 <= bottomRow && isFloor(b + 2, c)) terrain[b + 1][c] = "cliff";
+        ty = b + 2;
+      }
+    }
+    const stairs = [];
+    const stacks = [];
+    for (let c = leftCol; c <= rightCol; c++) {
+      const order2 = rooms.map((r, ri) => ({ r, ri })).filter(({ r }) => r.x <= c && c < r.x + r.width).sort((a, b) => a.r.tops[c - a.r.x] - b.r.tops[c - b.r.x]);
+      stacks[c] = order2.map(({ ri }) => ri);
+    }
+    const seenPairs = /* @__PURE__ */ new Set();
+    const pairList = [];
+    for (let c = leftCol; c <= rightCol; c++) {
+      const stack = stacks[c];
+      for (let i = 0; i + 1 < stack.length; i++) {
+        const key = `${stack[i]},${stack[i + 1]}`;
+        if (!seenPairs.has(key)) {
+          seenPairs.add(key);
+          pairList.push([stack[i], stack[i + 1]]);
+        }
+      }
+    }
+    const options = pairList.map(([ui, li]) => {
+      const u = rooms[ui];
+      const l = rooms[li];
+      const byRow = /* @__PURE__ */ new Map();
+      for (let i = 0; i < u.width; i++) {
+        const c = u.x + i;
+        if (c < l.x || c >= l.x + l.width) continue;
+        const wr = u.bottoms[i] + 1;
+        if (l.tops[c - l.x] !== wr + 1) continue;
+        const list = byRow.get(wr) ?? [];
+        list.push(c);
+        byRow.set(wr, list);
+      }
       const cands = [];
-      for (let w = Math.min(3, e - s + 1); w >= 1; w--) {
-        for (let st = s; st <= e - w + 1; st++) {
-          const left = st - 1 < 0 ? "sea" : terrain[bandRow][st - 1];
-          const right = st + w >= world.width ? "sea" : terrain[bandRow][st + w];
-          if (left === "cliff" && right === "cliff") cands.push({ start: st, width: w });
+      for (const [row, cols] of byRow) {
+        let s = 0;
+        while (s < cols.length) {
+          let e = s;
+          while (e + 1 < cols.length && cols[e + 1] === cols[e] + 1) e++;
+          for (let w = Math.min(3, e - s + 1); w >= 1; w--) {
+            for (let a = s; a + w - 1 <= e; a++) {
+              const st = cols[a];
+              const lf = st - 1 < 0 ? "sea" : terrain[row][st - 1];
+              const rt = st + w >= width ? "sea" : terrain[row][st + w];
+              if (lf !== "sea" && lf !== "coast" && rt !== "sea" && rt !== "coast") {
+                cands.push({ row, start: st, width: w });
+              }
+            }
+          }
+          s = e + 1;
         }
       }
       return shuffleWith(cands, rand);
     });
+    const order = options.map((_, i) => i).sort((a, b) => options[a].length - options[b].length);
     const placed = [];
-    const conflicts = ({ start: st, width: w }) => placed.some((d) => !(st - 1 > d.end || st + w < d.start));
-    const place = (i) => {
-      if (i === options.length) return true;
-      for (const door of options[i]) {
-        if (conflicts(door)) continue;
-        placed.push({ start: door.start, end: door.start + door.width - 1 });
-        if (place(i + 1)) return true;
+    const conflicts = (d) => placed.some(
+      (p) => p.row === d.row && !(d.start - 1 > p.start + p.width - 1 || d.start + d.width < p.start)
+    );
+    const place = (k) => {
+      if (k === order.length) return true;
+      const i = order[k];
+      for (const d of options[i]) {
+        if (conflicts(d)) continue;
+        placed.push(d);
+        if (place(k + 1)) return true;
         placed.pop();
       }
       return false;
     };
-    if (place(0)) {
-      for (const door of placed) {
-        for (let c = door.start; c <= door.end; c++) terrain[bandRow][c] = "stairs";
-        stairs.push({ start: door.start, width: door.end - door.start + 1, row: bandRow });
-      }
-    } else {
-      for (const span of spans2) {
-        const door = options[spans2.indexOf(span)].find((c) => !conflicts(c));
-        if (!door) continue;
-        placed.push({ start: door.start, end: door.start + door.width - 1 });
-        for (let c = door.start; c < door.start + door.width; c++) terrain[bandRow][c] = "stairs";
-        stairs.push({ start: door.start, width: door.width, row: bandRow });
+    if (!place(0)) {
+      placed.length = 0;
+      for (const i of order) {
+        const d = options[i].find((c) => !conflicts(c));
+        if (d) placed.push(d);
       }
     }
-  }
-  world.terrain = terrain;
-  world.stairs = stairs;
-  world.rooms = rooms;
-  world.level = Math.max(...rooms.map((r) => ROOM_LEVEL[r.type]));
+    for (const d of placed) {
+      for (let c = d.start; c < d.start + d.width; c++) terrain[d.row][c] = "stairs";
+      stairs.push({ start: d.start, width: d.width, row: d.row });
+    }
+    const isWalkKind = (k) => k === "rock" || k === "grass" || k === "beach" || k === "stairs";
+    const seen = /* @__PURE__ */ new Set([`${rooms[0].x},${rooms[0].tops[0]}`]);
+    const queue = [[rooms[0].x, rooms[0].tops[0]]];
+    while (queue.length > 0) {
+      const [cx, cy] = queue.shift();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        if (!isWalkKind(terrain[ny][nx])) continue;
+        const key = `${nx},${ny}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        queue.push([nx, ny]);
+      }
+    }
+    for (let ty = topRow; ty <= bottomRow; ty++) {
+      for (let c = leftCol; c <= rightCol; c++) {
+        if (isWalkKind(terrain[ty][c]) && !seen.has(`${c},${ty}`)) return null;
+      }
+    }
+    return { terrain, stairs, rooms };
+  };
+  let layout = drawLayout();
+  for (let attempt = 1; attempt < 60 && layout === null; attempt++) layout = drawLayout();
+  if (layout === null) throw new Error("buildRooms: could not draw a connected terrace layout");
+  world.terrain = layout.terrain;
+  world.stairs = layout.stairs;
+  world.rooms = layout.rooms;
+  world.level = Math.max(...layout.rooms.map((r) => ROOM_LEVEL[r.type]));
 }
 function standingTileKinds(world, px, py) {
   const tiles = [];
@@ -140288,13 +140436,9 @@ function generateWorld(seed, width = 16, height = 16) {
   }
   const grassRooms = world.rooms.filter((r) => r.type === "grass");
   const treeSlots = [];
-  if (grassRooms.length > 0) {
-    const gx0 = Math.min(...grassRooms.map((r) => r.x));
-    const gx1 = Math.max(...grassRooms.map((r) => r.x + r.width)) - 1;
-    const gy0 = grassRooms[0].y;
-    const gh = grassRooms[0].height;
-    for (let ty = gy0 + 2; ty < gy0 + gh - 2; ty += 2) {
-      for (let tx = gx0; tx <= gx1; tx += 2) treeSlots.push([tx, ty]);
+  for (const g of grassRooms) {
+    for (let ty = g.y + 2; ty <= g.y + g.height - 3; ty += 2) {
+      for (let tx = g.x; tx < g.x + g.width; tx += 2) treeSlots.push([tx, ty]);
     }
   }
   shuffleWith(treeSlots, rand);

@@ -48,21 +48,26 @@ export interface StairRun {
   row: number;
 }
 
-// A room is a level in the house: a rectangle of a single terrain kind. Rooms
-// are laid out in three stacked levels — rock halls on top, a grass courtyard
-// in the middle, beach shore at the bottom — each level a full-width slab split
-// into one or more side-by-side rooms sharing the level's rows. Rooms on the
-// same level sit flush (same kind, no wall between them); a room overlaps the
-// rooms on the levels above/below it and gets a doorway (a `stairs` run in the
-// shared wall band) into every one of them, so a room joins *several* rooms up
-// and down. `world.stairs` records each doorway run.
+// A room is a terrace segment: a run of columns of a single terrain kind,
+// descending from the top of the map toward the sea. Rooms on the same terrace
+// sit flush (same kind, no wall between them); vertically adjacent rooms are
+// separated by a one-row cliff band that hugs the UPPER room's bottom edge and
+// carries the staircases joining the two. Terrace heights wander per column,
+// so a room's edges are stepped curves rather than straight lines:
+// `tops`/`bottoms` hold the actual first/last row of each column (x + i),
+// while `y`/`height` describe the room's bounding box. Walking down any
+// column, the level never rises: rock(2) → grass(1)/beach(0), grass → beach,
+// with repeats allowed. `world.stairs` records each doorway run.
 export interface Room {
   type: RoomType;
   x: number; // left column (inclusive)
-  y: number; // top row (inclusive)
+  y: number; // bounding-box top row (inclusive)
   width: number; // in tiles
-  height: number; // in tiles
+  height: number; // bounding-box height in tiles
+  tops: number[]; // per-column top row (inclusive), length === width
+  bottoms: number[]; // per-column bottom row (inclusive), length === width
 }
+
 
 export interface World {
   width: number;
@@ -284,32 +289,35 @@ export function flatTileIndex(kind: 'grass' | 'beach' | 'rock', mask: number): n
   return row * 10 + base + col;
 }
 
-// The world is a vertical stack of rooms ("rooms in a house"). Each room is a
-// square-ish rectangle of one terrain kind — rock, grass, or beach — and each
-// is a level you descend. The rooms are stacked top→down in a relaxed order:
-// a room's type may only transition DOWN per the DAG rock→grass/beach,
-// grass→beach (the level index never increases going down, and rock may skip
-// straight to beach). The top/bottom rooms are not fixed.
+// The world is a terraced stack of rooms ("rooms in a house"). Each room is a
+// stretch of ground of one terrain kind — rock, grass, or beach — and the
+// terraces descend from the top of the map toward the sea: walking down any
+// column, the room level never rises (rock→grass/beach, grass→beach, repeats
+// allowed), and every higher room keeps a cliff wall along its whole bottom
+// edge wherever another room lies below it. Terraces are NOT full-width slabs:
+// each covers its own column range (open sea at the flanks is common), and
+// their heights wander along the range in small steps, so wall bands follow
+// jagged, stepped curves instead of straight lines — a terrace's south lip can
+// be a cliff face in one column and a sandy shore in the next.
 //
-// Between every pair of adjacent rooms sits a single-row wall band. That row
-// is a cliff face whose width is the full width of the upper room (the wall
-// belongs to the room above), except for one 1–3-wide staircase — the "door"
-// between the rooms — per overlapping pair. Rooms may be horizontally offset
-// from one another, so a room that is wider than (or simply offset from) its
-// neighbor hangs over the sea; its bottom wall still runs the room's whole
-// width, and its autotiled edge becomes a cliff lip facing the water. Because
-// doors live only on the shared north/south walls (the horizontal bands), a
-// room connects only to the ones directly above and below it — never side by
-// side.
+// Between vertically adjacent rooms sits a single-row wall band owned by the
+// upper room: the band hugs the upper room's actual (per-column) bottom edge
+// and carries 1–3-wide staircases — the "doors". Every pair of vertically
+// adjacent rooms (sharing at least one column) gets a door, so a room can join
+// several rooms up and down. Doors never touch open water and are never flush
+// against one another.
 //
-// Generation steps:
-//   1) Room types via the DAG (top→down), biased toward descending.
-//   2) Heights split the usable rows among the rooms (each band takes one row
-//      between a pair); widths are drawn "square-ish" (close to the height).
-//   3) Random horizontal offsets per room; adjacent pairs are then nudged so
-//      every shared wall still overlaps for a doorway (a door needs just one
-//      shared column, and full-overlap alignment guarantees it).
-//   4) Sea base ← room rects ← wall bands with 1–3-wide stairs at each overlap.
+// Generation steps (a layout is redrawn until the island is fully connected):
+//   1) 2–4 terraces via the DAG (top→down, biased to descend, shore at the
+//      bottom), each with a nominal height and its own column range.
+//   2) Per-terrace height jitter: piecewise-constant random walks (runs of
+//      1–3 columns stepping ±1) give every terrace a gently craggy profile.
+//   3) Per-column stacking: each column walks its covering terraces top→down,
+//      deriving each top from the previous bottom (+2 rows for the wall),
+//      clamped so everything fits above the southern sea margin.
+//   4) Each terrace splits into 1–3 flush side-by-side rooms.
+//   5) Sea base ← room rects ← wall bands under every upper bottom edge ←
+//      doors per adjacent pair ← flood-fill connectivity validation.
 function buildRooms(world: World, rand: () => number): void {
   const { width, height } = world;
   const seaTop = 1;
@@ -326,194 +334,366 @@ function buildRooms(world: World, rand: () => number): void {
   const MAX_H = 9;
   const MIN_W = 4;
 
-  // ── Three levels, top→down: rock halls, grass courtyard, beach shore ──────
-  // Each level is a horizontal run of one terrain kind, split into one or more
-  // side-by-side rooms sharing the level's rows. Rooms within a level sit flush
-  // (same kind, no wall between them); a room that overlaps rooms on the level
-  // below/above gets a doorway (a `stairs` run in the shared wall band) into
-  // every one of them, so a room can join *several* rooms up and down.
-  // The middle (grass) run always spans the full usable width — that anchors
-  // connectivity — while the rock and beach runs may be narrower, leaving open
-  // sea at their flanks for a varied coastline.
-  const LEVEL_TYPES: RoomType[] = ['rock', 'grass', 'beach'];
-
-  // ── Minimal total area per terrain kind (cells) ───────────────────────────
-  // The rooms of one level together must cover at least this many cells; note
-  // this is the *combined* area of every room of that kind, so e.g. three small
-  // beach rooms still add up to one big beach. Deeper levels get a bigger share.
-  const usableCells = usableRows * usableCols;
-  const areaTarget = (t: RoomType): number => {
-    const pct = t === 'rock' ? 0.18 : t === 'grass' ? 0.22 : 0.26;
-    return Math.round(usableCells * pct);
+  // Piecewise-constant random walk over `len` columns: runs of `minRun`–3
+  // columns, stepping −1/0/+1 with the cumulative offset clamped to ±amp.
+  // These small per-column wobbles are what make walls step instead of
+  // running straight.
+  const curve = (len: number, amp: number, minRun = 1): number[] => {
+    const out: number[] = [];
+    let o = 0;
+    let i = 0;
+    while (i < len) {
+      const run = minRun + Math.floor(rand() * (3 - minRun + 1));
+      const r = rand();
+      o = clamp(o + (r < 0.25 ? -1 : r < 0.75 ? 0 : 1), -amp, amp);
+      for (let k = 0; k < run && i < len; k++, i++) out.push(o);
+    }
+    return out;
   };
 
-  // Rooms per level: as many as the minimum room width allows (1-3).
-  const maxRooms = clamp(Math.floor(usableCols / MIN_W), 1, 3);
-  const counts = LEVEL_TYPES.map(() => 1 + Math.floor(rand() * maxRooms));
-
-  // Horizontal span of each level's run. Grass spans the full width; rock and
-  // beach may pull in from either side (0-2 columns), never narrower than the
-  // level's own rooms need.
-  const spans: Array<{ start: number; end: number }> = LEVEL_TYPES.map((_, z) => {
-    const marginL = z === 1 ? 0 : Math.floor(rand() * 3);
-    const marginR = z === 1 ? 0 : Math.floor(rand() * 3);
-    let start = leftCol + marginL;
-    let end = rightCol - marginR;
-    const need = Math.min(counts[z] * MIN_W, usableCols);
-    if (end - start + 1 < need) {
-      const over = need - (end - start + 1);
-      start = clamp(start - over, leftCol, rightCol);
-      end = clamp(end + over, leftCol, rightCol);
+  const weightedPick = <T,>(items: T[], weights: number[]): T => {
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = rand() * total;
+    for (let i = 0; i < items.length; i++) {
+      r -= weights[i];
+      if (r < 0) return items[i];
     }
-    return { start, end };
-  });
-  const spanWidths = spans.map((s) => s.end - s.start + 1);
+    return items[items.length - 1];
+  };
 
-  // Heights: height alone sizes a level's area (span × height).
-  const minH: number[] = LEVEL_TYPES.map((t, z) =>
-    clamp(Math.ceil(areaTarget(t) / spanWidths[z]), MIN_H, MAX_H)
-  );
-  // Rows available for the levels themselves (minus one wall band per boundary).
-  const zoneRows = usableRows - (LEVEL_TYPES.length - 1);
-  while (minH.reduce((a, b) => a + b, 0) > zoneRows) {
-    const i = minH.indexOf(Math.max(...minH));
-    minH[i] = Math.max(MIN_H, minH[i] - 1);
-  }
-  // Spread any leftover rows across the levels (bounded by MAX_H).
-  const heights = [...minH];
-  let extra = zoneRows - heights.reduce((a, b) => a + b, 0);
-  for (const i of shuffleWith([0, 1, 2], rand)) {
-    while (extra > 0 && heights[i] < MAX_H) {
-      heights[i]++;
-      extra--;
-    }
-    if (extra <= 0) break;
+  interface Terrace {
+    type: RoomType;
+    start: number; // left column of the terrace's range (inclusive)
+    end: number; // right column of the range (inclusive)
+    hNom: number; // nominal height before jitter
+    jit: number[]; // per-column height jitter over [start..end]
+    top: number[]; // per-column top row (filled in step 3)
+    bottom: number[]; // per-column bottom row (inclusive)
   }
 
-  // Build the room rects: each level is a contiguous partition of its span.
-  const zones: Room[][] = [];
-  let top = topRow;
-  for (let z = 0; z < LEVEL_TYPES.length; z++) {
-    const widths: number[] = [];
-    let gap = spanWidths[z];
-    for (let i = 0; i < counts[z]; i++) {
-      const leftover = counts[z] - i - 1;
-      const w = i === counts[z] - 1
-        ? gap
-        : MIN_W + Math.floor(rand() * (gap - leftover * MIN_W - MIN_W + 1));
-      widths.push(w);
-      gap -= w;
-    }
-    const levelRooms: Room[] = [];
-    let x = spans[z].start;
-    for (const w of widths) {
-      levelRooms.push({ type: LEVEL_TYPES[z], x, y: top, width: w, height: heights[z] });
-      x += w;
-    }
-    zones.push(levelRooms);
-    top += heights[z] + 1; // +1 = the wall band between this level and the next
-  }
-  const rooms = zones.flat();
+  // Draw one complete layout. Returns null when the island comes out
+  // disconnected (or, as a safety valve, when a column cannot fit its
+  // terraces); the caller redraws until it gets a connected one.
+  const drawLayout = (): { terrain: TerrainKind[][]; stairs: StairRun[]; rooms: Room[] } | null => {
+    // ── 1) Terraces: how many, which types ───────────────────────────────────
+    const kMax = clamp(Math.floor((usableRows - 2) / (MIN_H + 2)), 1, 4);
+    const kChoices = [2, 3, 4].filter((k) => k <= kMax);
+    const K = kChoices.length === 0 ? 1 : weightedPick(
+      kChoices,
+      kChoices.map((k) => (k === 2 ? 0.2 : k === 3 ? 0.55 : 0.25)),
+    );
 
-  // ── Terrain: sea base, room rects, then doorway bands ─────────────────────
-  const terrain: TerrainKind[][] = [];
-  for (let ty = 0; ty < height; ty++) terrain.push(new Array<TerrainKind>(width).fill('sea'));
-  for (const r of rooms) {
-    for (let ty = r.y; ty < r.y + r.height; ty++) {
-      for (let tx = r.x; tx < r.x + r.width; tx++) terrain[ty][tx] = r.type;
-    }
-  }
-
-  // A wall band with one door per overlapping (upper, lower) room pair. The
-  // wall face of a room against the level below spans the FULL width of the
-  // upper room — the shared overlap plus any overhang — so a room wider than
-  // the one beneath it hangs its cliff face the entire way across (the sea
-  // under the overhang still shows a complete wall, not a wall that stops where
-  // the rooms stop overlapping). Columns not claimed by an upper room stay open
-  // sea. A single room on one level that spans across several rooms on the
-  // level below gets one doorway into *each* of them, so a room can join
-  // multiple rooms up or down. A door must have a non-sea column on each side
-  // (at least a cliff lip) so the stairs never butt against the open sea at the
-  // run's flanks.
-  const stairs: StairRun[] = [];
-  for (let z = 0; z < zones.length - 1; z++) {
-    const up = zones[z];
-    const down = zones[z + 1];
-    const bandRow = up[0].y + up[0].height;
-    // Carve the whole wall first so every needed column is cliff before any
-    // door is placed — that way a door at a segment edge sees its neighbour
-    // cell (in an adjacent segment) as cliff, not as unprocessed sea.
-    const spans: Array<{ s: number; e: number }> = [];
-    for (const u of up) {
-      let joins = false;
-      for (const l of down) {
-        const s = Math.max(u.x, l.x);
-        const e = Math.min(u.x + u.width, l.x + l.width) - 1;
-        if (s > e) continue;
-        joins = true;
-        spans.push({ s, e });
+    // Types: a walk down the DAG — the level never rises, repeats allowed,
+    // and the bottom terrace almost always reaches the shore (beach).
+    const types: RoomType[] = [];
+    let lvl = rand() < 0.7 ? 2 : 1;
+    for (let i = 0; i < K; i++) {
+      if (i > 0) {
+        const r = rand();
+        const last = i === K - 1;
+        if (lvl === 2) {
+          if (last) lvl = r < 0.7 ? 0 : 1;
+          else if (r >= 0.25) lvl = r < 0.8 ? 1 : 0;
+        } else if (lvl === 1) {
+          if (last) {
+            if (r >= 0.35) lvl = 0;
+          } else if (r >= 0.3) lvl = 0;
+        }
       }
-      // Wall width = the upper room's full width (it owns the face), even past
-      // the overlap with the room below.
-      if (joins) {
-        for (let c = u.x; c < u.x + u.width; c++) terrain[bandRow][c] = 'cliff';
+      types.push(lvl === 2 ? 'rock' : lvl === 1 ? 'grass' : 'beach');
+    }
+    // Every world should mix at least two kinds — a single-kind island reads
+    // as a bug, not a terrace. Force the lowest terrace one step down the DAG
+    // if the walk came out flat.
+    if (types.every((t) => t === types[0]) && K >= 2) {
+      const drop: Record<string, RoomType> = { rock: 'grass', grass: 'beach', beach: 'grass' };
+      types[K - 1] = drop[types[K - 1]];
+    }
+
+    // Heights: split the rows between the terraces (one wall row between each
+    // consecutive pair), keeping one spare row so even a worst-case wobble
+    // fits. Extra rows are spread round-robin in random order so terraces come
+    // out varied (e.g. 6/5/5) instead of greedily lopsided (9/9/1).
+    const zoneRows = usableRows - (K - 1);
+    const distributable = Math.max(K * MIN_H, zoneRows - 1);
+    const hNom = new Array<number>(K).fill(MIN_H);
+    let extra = distributable - K * MIN_H;
+    while (extra > 0) {
+      let progressed = false;
+      for (const i of shuffleWith([...Array(K).keys()], rand)) {
+        if (extra <= 0) break;
+        if (hNom[i] < MAX_H) {
+          hNom[i]++;
+          extra--;
+          progressed = true;
+        }
+      }
+      if (!progressed) break;
+    }
+
+    // ── 2) Column ranges: each terrace picks its own span; consecutive ──────
+    // terraces must share columns so doors can join them. The ranges are
+    // drawn crown-last: T1..T(K−1) pick shifting spans (this is what breaks
+    // the single-ziggurat look), and the crown T0 then spans their union, so
+    // the topmost terrace in ANY column is always T0 — no 1-column needles
+    // poking up against the open sea at range seams. A shared global margin
+    // lets the whole island pull in from the flanks (open sea at the sides).
+    const gML = rand() < 0.45 ? 0 : Math.floor(rand() * 3);
+    const gMR = rand() < 0.45 ? 0 : Math.floor(rand() * 3);
+    const ranges: Array<{ start: number; end: number }> = [];
+    let prev = { start: leftCol + gML, end: rightCol - gMR };
+    for (let z = 1; z < K; z++) {
+      // Keep at least 3 shared columns with the previous terrace: overlap
+      // edges can be sea-flanked (the wall band ends where the ranges end),
+      // but an INTERIOR overlap column always has floor on both sides, so
+      // three shared columns guarantee a placeable doorway.
+      let start = leftCol + Math.floor(rand() * (Math.min(prev.end - 2, rightCol - MIN_W + 1) - leftCol + 1));
+      const minEnd = Math.max(start + MIN_W - 1, prev.start + 2);
+      let end = minEnd + Math.floor(rand() * (rightCol - minEnd + 1));
+      // Occasional extra inward nibble for variety (never below MIN_W wide,
+      // never eating the 3-column overlap).
+      const s2 = start + (rand() < 0.25 ? 1 : 0);
+      const e2 = end - (rand() < 0.25 ? 1 : 0);
+      if (e2 - s2 + 1 >= MIN_W && s2 <= prev.end - 2 && e2 >= prev.start + 2) {
+        start = s2;
+        end = e2;
+      }
+      ranges.push({ start, end });
+      prev = { start, end };
+    }
+    ranges.unshift({
+      start: Math.min(leftCol + gML, ...ranges.map((r) => r.start)),
+      end: Math.max(rightCol - gMR, ...ranges.map((r) => r.end)),
+    });
+    const terraces: Terrace[] = [];
+    for (let z = 0; z < K; z++) {
+      const { start, end } = ranges[z];
+      const len = end - start + 1;
+      terraces.push({
+        type: types[z],
+        start,
+        end,
+        hNom: hNom[z],
+        // The crown's north edge is the shoreline: wiggle it in wider steps
+        // (min run 2) so the coast steps cleanly instead of needling.
+        jit: curve(len, 1, z === 0 ? 2 : 1),
+        top: new Array<number>(len).fill(0),
+        bottom: new Array<number>(len).fill(0),
+      });
+    }
+
+    // ── 3) Per-column stacking: derive every terrace's rows ──────────────────
+    for (let c = leftCol; c <= rightCol; c++) {
+      const covering = terraces.filter((t) => t.start <= c && c <= t.end);
+      let cur = -1;
+      for (let idx = 0; idx < covering.length; idx++) {
+        const t = covering[idx];
+        const ci = c - t.start;
+        if (idx === 0) {
+          // The topmost terrace's north edge is the shoreline: mostly flush
+          // with the sea margin, occasionally stepping down a row.
+          cur = topRow + Math.max(0, t.jit[ci]);
+        }
+        // Leave room below for the remaining terraces of this column: each
+        // needs its MIN_H floor plus one separating wall row.
+        const m = covering.length - idx - 1;
+        let h = clamp(t.hNom + t.jit[ci], MIN_H, MAX_H);
+        h = Math.min(h, bottomRow - cur + 1 - m * (MIN_H + 1));
+        if (h < MIN_H) return null; // column overfull — redraw the layout
+        t.top[ci] = cur;
+        t.bottom[ci] = cur + h - 1;
+        cur = t.bottom[ci] + 2; // +1 wall row, then the next terrace's floor
       }
     }
-    // Place one door per overlapping pair. A door must be walled in on both
-    // flanks — an actual cliff column on each side, never the open sea and
-    // never another doorway. That single rule forbids stair runs sitting next
-    // to each other: two doors must keep a wall column between them. Because a
-    // door stamped at a segment boundary can steal the lip column a neighbour
-    // span needs, the spans are placed together via a small backtracking
-    // search (a few candidate doors per band) rather than greedily one by one.
-    const options = spans.map(({ s, e }) => {
-      const cands: Array<{ start: number; width: number }> = [];
-      for (let w = Math.min(3, e - s + 1); w >= 1; w--) {
-        for (let st = s; st <= e - w + 1; st++) {
-          const left = st - 1 < 0 ? 'sea' : terrain[bandRow][st - 1];
-          const right = st + w >= world.width ? 'sea' : terrain[bandRow][st + w];
-          if (left === 'cliff' && right === 'cliff') cands.push({ start: st, width: w });
+
+    // ── 4) Split each terrace into 1–3 flush side-by-side rooms ──────────────
+    const rooms: Room[] = [];
+    for (const t of terraces) {
+      const spanW = t.end - t.start + 1;
+      const maxRooms = clamp(Math.floor(spanW / MIN_W), 1, 3);
+      const count = 1 + Math.floor(rand() * maxRooms);
+      const widths: number[] = [];
+      let gap = spanW;
+      for (let i = 0; i < count; i++) {
+        const leftover = count - i - 1;
+        const w = i === count - 1
+          ? gap
+          : MIN_W + Math.floor(rand() * (gap - leftover * MIN_W - MIN_W + 1));
+        widths.push(w);
+        gap -= w;
+      }
+      let x = t.start;
+      for (const w of widths) {
+        const tops = t.top.slice(x - t.start, x - t.start + w);
+        const bottoms = t.bottom.slice(x - t.start, x - t.start + w);
+        const y = Math.min(...tops);
+        const yMax = Math.max(...bottoms);
+        rooms.push({ type: t.type, x, y, width: w, height: yMax - y + 1, tops, bottoms });
+        x += w;
+      }
+    }
+
+    // ── 5) Carve: sea base, room rects, then the wall bands ──────────────────
+    const terrain: TerrainKind[][] = [];
+    for (let ty = 0; ty < height; ty++) terrain.push(new Array<TerrainKind>(width).fill('sea'));
+    for (const r of rooms) {
+      for (let i = 0; i < r.width; i++) {
+        for (let ty = r.tops[i]; ty <= r.bottoms[i]; ty++) terrain[ty][r.x + i] = r.type;
+      }
+    }
+    // Walls: scan each column top→down; wherever a floor run ends and another
+    // begins two rows later, the row between becomes the upper room's cliff
+    // face — the wall hugs the actual stepped bottom edge. A run whose south
+    // is open water is the local shore and gets no wall.
+    const isFloor = (ty: number, c: number): boolean => {
+      const k = terrain[ty][c];
+      return k === 'rock' || k === 'grass' || k === 'beach';
+    };
+    for (let c = leftCol; c <= rightCol; c++) {
+      let ty = topRow;
+      while (ty <= bottomRow) {
+        if (!isFloor(ty, c)) {
+          ty++;
+          continue;
+        }
+        let b = ty;
+        while (b + 1 <= bottomRow && isFloor(b + 1, c)) b++;
+        if (b + 2 <= bottomRow && isFloor(b + 2, c)) terrain[b + 1][c] = 'cliff';
+        ty = b + 2;
+      }
+    }
+
+    // ── 6) Doors: one staircase per vertically adjacent room pair ────────────
+    // Adjacency means sharing a column with no room between them there. The
+    // door lives in the wall row under the upper room's bottom edge, on a run
+    // of columns that share the same wall row, walled off from open water on
+    // both flanks, and never flush against another door in the same row.
+    const stairs: StairRun[] = [];
+    const stacks: number[][] = [];
+    for (let c = leftCol; c <= rightCol; c++) {
+      const order = rooms
+        .map((r, ri) => ({ r, ri }))
+        .filter(({ r }) => r.x <= c && c < r.x + r.width)
+        .sort((a, b) => a.r.tops[c - a.r.x] - b.r.tops[c - b.r.x]);
+      stacks[c] = order.map(({ ri }) => ri);
+    }
+    const seenPairs = new Set<string>();
+    const pairList: Array<[number, number]> = [];
+    for (let c = leftCol; c <= rightCol; c++) {
+      const stack = stacks[c];
+      for (let i = 0; i + 1 < stack.length; i++) {
+        const key = `${stack[i]},${stack[i + 1]}`;
+        if (!seenPairs.has(key)) {
+          seenPairs.add(key);
+          pairList.push([stack[i], stack[i + 1]]);
+        }
+      }
+    }
+    type Cand = { row: number; start: number; width: number };
+    const options: Cand[][] = pairList.map(([ui, li]) => {
+      const u = rooms[ui];
+      const l = rooms[li];
+      // Group the pair's shared columns by their wall row…
+      const byRow = new Map<number, number[]>();
+      for (let i = 0; i < u.width; i++) {
+        const c = u.x + i;
+        if (c < l.x || c >= l.x + l.width) continue;
+        const wr = u.bottoms[i] + 1;
+        if (l.tops[c - l.x] !== wr + 1) continue; // not adjacent in this column
+        const list = byRow.get(wr) ?? [];
+        list.push(c);
+        byRow.set(wr, list);
+      }
+      // …then offer every door position on each contiguous equal-row run.
+      const cands: Cand[] = [];
+      for (const [row, cols] of byRow) {
+        let s = 0;
+        while (s < cols.length) {
+          let e = s;
+          while (e + 1 < cols.length && cols[e + 1] === cols[e] + 1) e++;
+          for (let w = Math.min(3, e - s + 1); w >= 1; w--) {
+            for (let a = s; a + w - 1 <= e; a++) {
+              const st = cols[a];
+              const lf = st - 1 < 0 ? 'sea' : terrain[row][st - 1];
+              const rt = st + w >= width ? 'sea' : terrain[row][st + w];
+              if (lf !== 'sea' && lf !== 'coast' && rt !== 'sea' && rt !== 'coast') {
+                cands.push({ row, start: st, width: w });
+              }
+            }
+          }
+          s = e + 1;
         }
       }
       return shuffleWith(cands, rand);
     });
-    // Doors already chosen for this band, with a one-col wall margin on each
-    // side so neighbours can't sit flush. (start/end are the door body.)
-    const placed: Array<{ start: number; end: number }> = [];
-    const conflicts = ({ start: st, width: w }: { start: number; width: number }): boolean =>
-      placed.some((d) => !(st - 1 > d.end || st + w < d.start));
-    const place = (i: number): boolean => {
-      if (i === options.length) return true;
-      for (const door of options[i]) {
-        if (conflicts(door)) continue;
-        placed.push({ start: door.start, end: door.start + door.width - 1 });
-        if (place(i + 1)) return true;
+    // Joint placement: pick one candidate per pair, keeping two doors in the
+    // same row at least one wall column apart. Small search — backtrack, with
+    // scarcest-first (MRV) ordering so pairs with few usable spots claim them
+    // before flexible pairs crowd the row.
+    const order = options.map((_, i) => i).sort((a, b) => options[a].length - options[b].length);
+    const placed: Cand[] = [];
+    const conflicts = (d: Cand): boolean =>
+      placed.some((p) =>
+        p.row === d.row && !(d.start - 1 > p.start + p.width - 1 || d.start + d.width < p.start)
+      );
+    const place = (k: number): boolean => {
+      if (k === order.length) return true;
+      const i = order[k];
+      for (const d of options[i]) {
+        if (conflicts(d)) continue;
+        placed.push(d);
+        if (place(k + 1)) return true;
         placed.pop();
       }
       return false;
     };
-    if (place(0)) {
-      for (const door of placed) {
-        for (let c = door.start; c <= door.end; c++) terrain[bandRow][c] = 'stairs';
-        stairs.push({ start: door.start, width: door.end - door.start + 1, row: bandRow });
-      }
-    } else {
-      // No non-conflicting assignment covers every span; fall back to greedy so
-      // the level still links up wherever the walls allow.
-      for (const span of spans) {
-        const door = options[spans.indexOf(span)].find((c) => !conflicts(c));
-        if (!door) continue;
-        placed.push({ start: door.start, end: door.start + door.width - 1 });
-        for (let c = door.start; c < door.start + door.width; c++) terrain[bandRow][c] = 'stairs';
-        stairs.push({ start: door.start, width: door.width, row: bandRow });
+    if (!place(0)) {
+      // Greedy fallback: best effort — the connectivity check below decides.
+      placed.length = 0;
+      for (const i of order) {
+        const d = options[i].find((c) => !conflicts(c));
+        if (d) placed.push(d);
       }
     }
-  }
+    for (const d of placed) {
+      for (let c = d.start; c < d.start + d.width; c++) terrain[d.row][c] = 'stairs';
+      stairs.push({ start: d.start, width: d.width, row: d.row });
+    }
 
-  world.terrain = terrain;
-  world.stairs = stairs;
-  world.rooms = rooms;
-  world.level = Math.max(...rooms.map((r) => ROOM_LEVEL[r.type]));
+    // ── 7) Connectivity: every walkable tile reachable from the top room ─────
+    const isWalkKind = (k: TerrainKind): boolean =>
+      k === 'rock' || k === 'grass' || k === 'beach' || k === 'stairs';
+    const seen = new Set<string>([`${rooms[0].x},${rooms[0].tops[0]}`]);
+    const queue: Array<[number, number]> = [[rooms[0].x, rooms[0].tops[0]]];
+    while (queue.length > 0) {
+      const [cx, cy] = queue.shift()!;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        if (!isWalkKind(terrain[ny][nx])) continue;
+        const key = `${nx},${ny}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        queue.push([nx, ny]);
+      }
+    }
+    for (let ty = topRow; ty <= bottomRow; ty++) {
+      for (let c = leftCol; c <= rightCol; c++) {
+        if (isWalkKind(terrain[ty][c]) && !seen.has(`${c},${ty}`)) return null;
+      }
+    }
+    return { terrain, stairs, rooms };
+  };
+
+  let layout = drawLayout();
+  for (let attempt = 1; attempt < 60 && layout === null; attempt++) layout = drawLayout();
+  if (layout === null) throw new Error('buildRooms: could not draw a connected terrace layout');
+
+  world.terrain = layout.terrain;
+  world.stairs = layout.stairs;
+  world.rooms = layout.rooms;
+  world.level = Math.max(...layout.rooms.map((r) => ROOM_LEVEL[r.type]));
 }
 
 // The tile the body stands on at a pixel position (feet + body width probes).
@@ -737,15 +917,13 @@ export function generateWorld(seed: number, width = 16, height = 16): World {
   // two rows clear of the wall bands above/below. A tree is ~2.7 tiles tall, so
   // this is the only way its full content stays inside the grass and its solid
   // doesn't dip into a doorway corridor.
+  // Each grass room contributes slots from its own bounding box (rooms on a
+  // terrace no longer share exact rows); rectOnGrass filters per-tile.
   const grassRooms = world.rooms.filter((r) => r.type === 'grass');
   const treeSlots: Array<[number, number]> = [];
-  if (grassRooms.length > 0) {
-    const gx0 = Math.min(...grassRooms.map((r) => r.x));
-    const gx1 = Math.max(...grassRooms.map((r) => r.x + r.width)) - 1;
-    const gy0 = grassRooms[0].y;
-    const gh = grassRooms[0].height;
-    for (let ty = gy0 + 2; ty < gy0 + gh - 2; ty += 2) {
-      for (let tx = gx0; tx <= gx1; tx += 2) treeSlots.push([tx, ty]);
+  for (const g of grassRooms) {
+    for (let ty = g.y + 2; ty <= g.y + g.height - 3; ty += 2) {
+      for (let tx = g.x; tx < g.x + g.width; tx += 2) treeSlots.push([tx, ty]);
     }
   }
   shuffleWith(treeSlots, rand);

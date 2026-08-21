@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { canOccupyAt, generateWorld, landTouchesWater, ROOM_LEVEL, TILE } from '../lib/game.ts';
+import { canOccupyAt, generateWorld, landTouchesWater, TILE } from '../lib/game.ts';
 import type { Room, StairRun, World } from '../lib/game.ts';
 
 const W = 16;
@@ -10,13 +10,8 @@ function world(): World {
 }
 
 const WALKABLE = new Set(['grass', 'beach', 'rock', 'stairs']);
-
-// All rooms of one level share the same (y, height); group them that way.
-function levelsOf(w: World): Room[][] {
-  const bySig = new Map<string, Room[]>();
-  for (const r of w.rooms) bySig.set(`${r.y},${r.height}`, [...(bySig.get(`${r.y},${r.height}`) ?? []), r]);
-  return [...bySig.values()].sort((a, b) => a[0].y - b[0].y);
-}
+const FLOOR = new Set(['grass', 'beach', 'rock']);
+const LEVEL_OF: Record<string, number> = { rock: 2, grass: 1, beach: 0 };
 
 // Contiguous stairs runs [start, end] in a given row.
 function stairsRuns(w: World, ty: number): Array<[number, number]> {
@@ -54,7 +49,31 @@ function flood(w: World, sx: number, sy: number): Set<string> {
   return seen;
 }
 
-// ── Rooms: rectangles, layout, DAG ordering ────────────────────────────────
+// The room owning the floor tile (tx,ty), or null. Uses the per-column
+// intervals, not bounding boxes.
+function roomAt(w: World, tx: number, ty: number): Room | null {
+  for (const r of w.rooms) {
+    const i = tx - r.x;
+    if (i < 0 || i >= r.width) continue;
+    if (ty >= r.tops[i] && ty <= r.bottoms[i]) return r;
+  }
+  return null;
+}
+
+// Per-column vertical stacks of room indices (top→down), keyed by column.
+function columnStacks(w: World): number[][] {
+  const stacks: number[][] = [];
+  for (let c = 0; c < w.width; c++) {
+    stacks[c] = w.rooms
+      .map((r, ri) => ({ r, ri }))
+      .filter(({ r }) => r.x <= c && c < r.x + r.width)
+      .sort((a, b) => a.r.tops[c - a.r.x] - b.r.tops[c - b.r.x])
+      .map(({ ri }) => ri);
+  }
+  return stacks;
+}
+
+// ── Rooms: terrace layout, ordering, walls ─────────────────────────────────
 
 Deno.test('rooms — the map is framed by sea margins', () => {
   for (let seed = 1; seed <= 25; seed++) {
@@ -70,262 +89,97 @@ Deno.test('rooms — the map is framed by sea margins', () => {
   }
 });
 
-Deno.test('rooms — 3-9 rectangles inside the margins, one kind each, level rows shared', () => {
+Deno.test('rooms — 2-12 terrace segments, each column 3+ deep, inside the margins', () => {
   for (let seed = 1; seed <= 40; seed++) {
     const w = generateWorld(seed, W, H);
     const rooms = w.rooms;
-    assert(rooms.length >= 3 && rooms.length <= 9, `room count ${rooms.length} (seed ${seed})`);
-    // Rooms of a level share the same rows (same y + height); rows differ per level.
-    const byY = new Map<string, Room[]>();
-    for (const r of w.rooms) byY.set(`${r.y},${r.height}`, [...(byY.get(`${r.y},${r.height}`) ?? []), r]);
-    assert(byY.size === 3, `seed ${seed}: expected 3 distinct levels, got ${byY.size}`);
+    // 2-4 terraces × 1-3 segments each.
+    assert(rooms.length >= 2 && rooms.length <= 12, `room count ${rooms.length} (seed ${seed})`);
     for (const r of rooms) {
       assert(r.type === 'rock' || r.type === 'grass' || r.type === 'beach', `room type ${r.type}`);
-      assert(r.width >= 3 && r.width <= W - 2, `room width ${r.width} (seed ${seed})`);
-      assert(r.height >= 3 && r.height <= 9, `room height ${r.height} (seed ${seed})`);
-      assert(r.x >= 1 && r.y >= 1 && r.x + r.width <= W - 1 && r.y + r.height <= H - 1, `room in bounds ${r}`);
-      for (let ty = r.y; ty < r.y + r.height; ty++) {
-        for (let tx = r.x; tx < r.x + r.width; tx++) {
-          assertEquals(w.terrain[ty][tx], r.type, `room fill (seed ${seed}) room ${r} at (${tx},${ty})`);
-        }
+      assert(r.width >= 4, `room width ${r.width} (seed ${seed})`);
+      assertEquals(r.tops.length, r.width, `tops length (seed ${seed})`);
+      assertEquals(r.bottoms.length, r.width, `bottoms length (seed ${seed})`);
+      for (let i = 0; i < r.width; i++) {
+        const h = r.bottoms[i] - r.tops[i] + 1;
+        assert(h >= 3 && h <= 9, `column depth ${h} (seed ${seed} room ${r.type}@${r.x}+${i})`);
+        assert(r.tops[i] >= 1 && r.bottoms[i] <= H - 2, `interval in bounds (seed ${seed})`);
       }
+      // Bounding box agrees with the intervals.
+      assertEquals(r.y, Math.min(...r.tops), `bbox y (seed ${seed})`);
+      assertEquals(r.height, Math.max(...r.bottoms) - Math.min(...r.tops) + 1, `bbox height (seed ${seed})`);
     }
   }
 });
 
-Deno.test('rooms — each level is a contiguous run; grass spans the full usable width', () => {
-  for (let seed = 1; seed <= 40; seed++) {
-    const w = generateWorld(seed, W, H);
-    // Group rooms by their (y, height) tuples — the level signature.
-    const levels = new Map<string, Room[]>();
-    for (const r of w.rooms) levels.set(`${r.y},${r.height}`, [...(levels.get(`${r.y},${r.height}`) ?? []), r]);
-    for (const [sig, rs] of levels) {
-      const type = rs[0].type;
-      for (const r of rs) assertEquals(r.type, type, `level ${sig} mixes kinds`);
-      rs.sort((a, b) => a.x - b.x);
-      // Left to right they tile their span with no gap and no overlap.
-      let cursor = rs[0].x;
-      for (const r of rs) {
-        assertEquals(r.x, cursor, `level ${sig} rooms should be flush (seed ${seed})`);
-        cursor = r.x + r.width;
-      }
-      // All rooms stay inside the sea margins.
-      for (const r of rs) assert(r.x >= 1 && r.x + r.width <= W - 1, `room leaves margins (seed ${seed})`);
-      // The middle (grass) run reaches both margins — it anchors connectivity.
-      if (type === 'grass') {
-        assertEquals(rs[0].x, 1, `grass level should start at the left margin`);
-        assertEquals(cursor, W - 1, `grass level should end at the right margin`);
-      }
-      // Same level rooms are all walkable to each other (no wall between them).
-      for (let i = 0; i < rs.length; i++) {
-        const a = rs[i];
-        const b = rs[i + 1];
-        if (b) {
-          assertEquals(w.terrain[a.y + a.height - 1][a.x + a.width - 1], a.type, 'shared edge interior');
-          assertEquals(w.terrain[b.y][b.x], b.type, 'shared edge interior');
-        }
-      }
-    }
-  }
-});
-
-Deno.test('rooms — every terrain kind meets its minimal total area (rooms combined)', () => {
-  const pct: Record<string, number> = { rock: 0.18, grass: 0.22, beach: 0.26 };
+Deno.test('rooms — terrain is exactly the per-column room intervals (no stray land)', () => {
   for (let seed = 1; seed <= 60; seed++) {
     for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
-      const usableCells = (w.width - 2) * (w.height - 2);
-      const total: Record<string, number> = { rock: 0, grass: 0, beach: 0 };
-      for (const r of w.rooms) total[r.type] += r.width * r.height;
-      for (const t of ['rock', 'grass', 'beach'] as const) {
-        const target = Math.round(usableCells * pct[t]);
-        assert(
-          total[t] >= target,
-          `seed ${seed}: ${t} total area ${total[t]} < target ${target}`,
-        );
-      }
-      // Every level actually contributes rooms (none is dropped).
-      assert(total.rock > 0 && total.grass > 0 && total.beach > 0, `seed ${seed}: a level is missing`);
-    }
-  }
-});
-
-Deno.test('rooms — terrain is exactly the room rects (no stray or shared land)', () => {
-  for (let seed = 1; seed <= 60; seed++) {
-    for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
-      // Rooms never overlap a cell.
-      for (let i = 0; i < w.rooms.length; i++) {
-        for (let j = i + 1; j < w.rooms.length; j++) {
-          const a = w.rooms[i];
-          const b = w.rooms[j];
-          assert(
-            !(a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height),
-            `seed ${seed}: rooms ${i} and ${j} overlap`,
-          );
-        }
-      }
-      // Every land tile sits in exactly one room and matches that room's kind;
-      // rooms contain no other terrain.
+      // Every floor tile sits in exactly one room interval and matches its kind.
       for (let ty = 0; ty < w.height; ty++) {
         for (let tx = 0; tx < w.width; tx++) {
           const k = w.terrain[ty][tx];
-          if (k === 'rock' || k === 'grass' || k === 'beach') {
-            const owners = w.rooms.filter(
-              (r) => tx >= r.x && tx < r.x + r.width && ty >= r.y && ty < r.y + r.height,
-            );
-            assert(owners.length === 1, `seed ${seed}: ${k} tile (${tx},${ty}) in ${owners.length} rooms`);
-            assertEquals(owners[0].type, k, `seed ${seed}: ${k} tile (${tx},${ty}) ≠ room ${owners[0].type}`);
-          }
-        }
-      }
-    }
-  }
-});
-
-Deno.test('rooms — types are strictly rock → grass → beach top→down (3 levels)', () => {
-  for (let seed = 1; seed <= 40; seed++) {
-    const w = generateWorld(seed, W, H);
-    const levels = new Map<string, Room[]>();
-    for (const r of w.rooms) levels.set(`${r.y},${r.height}`, [...(levels.get(`${r.y},${r.height}`) ?? []), r]);
-    const sigs = [...levels.keys()].sort((a, b) => Number(a.split(',')[0]) - Number(b.split(',')[0]));
-    assert(sigs.length === 3, `seed ${seed}: expected exactly 3 levels`);
-    const types = sigs.map((s) => levels.get(s)![0].type);
-    assert(types[0] === 'rock' && types[1] === 'grass' && types[2] === 'beach',
-      `seed ${seed}: wrong level order ${types.join('>')}`);
-    // Room list is ordered top→down then left→right, so the level index never rises.
-    for (let i = 1; i < w.rooms.length; i++) {
-      assert(
-        ROOM_LEVEL[w.rooms[i - 1].type] >= ROOM_LEVEL[w.rooms[i].type],
-        `seed ${seed}: level rose ${w.rooms[i - 1].type}→${w.rooms[i].type}`,
-      );
-    }
-  }
-});
-
-Deno.test('rooms — a single row (a wall band) separates adjacent levels', () => {
-  for (let seed = 1; seed <= 40; seed++) {
-    const w = generateWorld(seed, W, H);
-    const levels = levelsOf(w);
-    assert(levels.length === 3, `seed ${seed}: expected 3 levels`);
-    for (let z = 1; z < levels.length; z++) {
-      const a = levels[z - 1][0];
-      const b = levels[z][0];
-      assertEquals(
-        a.y + a.height + 1,
-        b.y,
-        `seed ${seed}: levels ${z - 1}/${z} should be separated by one band row`,
-      );
-    }
-  }
-});
-
-Deno.test('rooms — a room joins every room it overlaps on the level above/below (door per pair)', () => {
-  for (let seed = 1; seed <= 50; seed++) {
-    for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
-      const levels = levelsOf(w);
-      for (let z = 0; z < levels.length - 1; z++) {
-        const up = levels[z];
-        const down = levels[z + 1];
-        const bandRow = up[0].y + up[0].height;
-        for (let c = 1; c < W - 1; c++) {
-          const overUp = up.some((u) => c >= u.x && c < u.x + u.width);
-          const overDown = down.some((l) => c >= l.x && c < l.x + l.width);
-          // A joined upper room's wall runs its FULL width, so the part of it
-          // that overhangs the sea (past the room below) still gets a wall.
-          const joinedAbove = up.some(
-            (u) =>
-              c >= u.x && c < u.x + u.width &&
-              down.some((l) => u.x < l.x + l.width && l.x < u.x + u.width),
-          );
-          const kind = w.terrain[bandRow][c];
-          if (overUp && overDown) {
-            assert(kind === 'cliff' || kind === 'stairs', `band tile (${c},${bandRow}) = ${kind}`);
-            // The tiles immediately above/below are those rooms' floors.
-            assert(WALKABLE.has(w.terrain[bandRow - 1][c]) && WALKABLE.has(w.terrain[bandRow + 1][c]));
-          } else if (overUp && joinedAbove) {
-            // The full-width wall ends past the overlap: only cliff there.
-            assert(kind === 'cliff', `band overhang (${c},${bandRow}) = ${kind}`);
+          if (FLOOR.has(k)) {
+            const owners = w.rooms.filter((r) => {
+              const i = tx - r.x;
+              return i >= 0 && i < r.width && ty >= r.tops[i] && ty <= r.bottoms[i];
+            });
+            assertEquals(owners.length, 1, `seed ${seed}: ${k} tile (${tx},${ty}) in ${owners.length} rooms`);
+            assertEquals(owners[0].type, k, `seed ${seed}: ${k} tile (${tx},${ty}) ≠ room kind`);
           } else {
-            assertEquals(kind, 'sea', `band gap (${c},${bandRow}) should be open sea`);
+            assertEquals(roomAt(w, tx, ty), null, `seed ${seed}: stray room covers (${tx},${ty})`);
           }
-        }
-        // Every overlapping (upper, lower) room pair carries a door, unless its
-        // single overlapping column is flanked on both sides by open sea (no
-        // room for a safe landing).
-        for (const u of up) {
-          for (const l of down) {
-            const s = Math.max(u.x, l.x);
-            const e = Math.min(u.x + u.width, l.x + l.width) - 1;
-            if (s > e) continue;
-            const doors = (row: number): StairRun[] =>
-              w.stairs.filter(
-                (door) => door.row === row && door.start <= e && door.start + door.width - 1 >= s,
-              );
-            if (e - s + 1 >= 2) {
-              assert(doors(bandRow).length >= 1,
-                `seed ${seed}: no door connecting u@${u.x}x${u.width} and l@${l.x}x${l.width}`);
-            } else {
-              // A lone column can open a door only if it lands between two
-              // solid (cliff or stairs) flanks; a sea flank on either side (an
-              // overhang past the carved wall, or a bare edge) means no safe
-              // landing, and a neighbour's stair run flush against it would put
-              // two doors side by side — either way the column stays a wall.
-              const leftSolid = w.terrain[bandRow][s - 1] === 'cliff' || w.terrain[bandRow][s - 1] === 'stairs';
-              const rightSolid = w.terrain[bandRow][s + 1] === 'cliff' || w.terrain[bandRow][s + 1] === 'stairs';
-              const flushAgainstDoor =
-                w.terrain[bandRow][s - 1] === 'stairs' || w.terrain[bandRow][s + 1] === 'stairs';
-              assert(doors(bandRow).length >= 1 || !leftSolid || !rightSolid || flushAgainstDoor,
-                `seed ${seed}: lone column ${s} can and should have a door`);
-            }
-            for (const d of doors(bandRow)) {
-              assert(d.width >= 1 && d.width <= 3, `door ${d.start} should be 1-3 wide`);
-            }
-          }
-        }
-        // The consumer-facing constraint: no stair tile is ever next to water.
-        for (const run of stairsRuns(w, bandRow)) {
-          const [rs, re] = run;
-          assert(w.terrain[bandRow][rs - 1] !== 'sea' && w.terrain[bandRow][rs - 1] !== 'coast',
-            `seed ${seed}: stairs run ${rs}-${re} touches water on the left`);
-          assert(w.terrain[bandRow][re + 1] !== 'sea' && w.terrain[bandRow][re + 1] !== 'coast',
-            `seed ${seed}: stairs run ${rs}-${re} touches water on the right`);
         }
       }
     }
   }
 });
 
-Deno.test('rooms — world.stairs matches the terrain', () => {
-  const w = world();
-  for (let ty = 0; ty < H; ty++) {
-    const runs = stairsRuns(w, ty);
-    const recorded = w.stairs.filter((s) => s.row === ty);
-    assertEquals(recorded.length, runs.length, `one world.stairs entry per terrain run (row ${ty})`);
-    for (const [i, [s, e]] of runs.entries()) {
-      const run = recorded[i];
-      assertEquals(run.start, s, `run ${i} start`);
-      assertEquals(run.width, e - s + 1, `run ${i} width`);
+Deno.test('rooms — walking down any column the level never rises (terrace order)', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const w = generateWorld(seed, W, H);
+    const stacks = columnStacks(w);
+    let sawStack = false;
+    for (let c = 1; c < W - 1; c++) {
+      for (let i = 1; i < stacks[c].length; i++) {
+        sawStack = true;
+        const up = w.rooms[stacks[c][i - 1]];
+        const down = w.rooms[stacks[c][i]];
+        assert(
+          LEVEL_OF[up.type] >= LEVEL_OF[down.type],
+          `seed ${seed}: level rose downward at col ${c}: ${up.type}→${down.type}`,
+        );
+      }
     }
+    assert(sawStack, `seed ${seed}: expected stacked terraces`);
+    // The crown starts at rock or grass — never a beach summit.
+    const crown = w.rooms.reduce((a, r) => (r.y < a.y ? r : a), w.rooms[0]);
+    assert(crown.type !== 'beach', `seed ${seed}: crown terrace should be rock or grass`);
   }
 });
 
-Deno.test('rooms — stair runs are never placed flush against each other', () => {
-  for (let seed = 1; seed <= 60; seed++) {
+Deno.test('rooms — exactly one wall row between stacked rooms, hugging the upper bottom edge', () => {
+  for (let seed = 1; seed <= 40; seed++) {
     const w = generateWorld(seed, W, H);
-    for (let ty = 0; ty < H; ty++) {
-      const runs = stairsRuns(w, ty)
-        .map(([s, e]) => ({ s, e }))
-        .sort((a, b) => a.s - b.s);
-      for (let i = 1; i < runs.length; i++) {
-        const prev = runs[i - 1];
-        const cur = runs[i];
-        assert(
-          cur.s > prev.e + 1,
-          `seed ${seed}: stair runs ${prev.s}-${prev.e} and ${cur.s}-${cur.e} are adjacent (row ${ty})`,
+    const stacks = columnStacks(w);
+    for (let c = 1; c < W - 1; c++) {
+      for (let i = 1; i < stacks[c].length; i++) {
+        const up = w.rooms[stacks[c][i - 1]];
+        const down = w.rooms[stacks[c][i]];
+        const ui = c - up.x;
+        const di = c - down.x;
+        assertEquals(
+          up.bottoms[ui] + 2,
+          down.tops[di],
+          `seed ${seed}: col ${c} should have exactly one row between the stacked rooms`,
         );
-        // The separating column must be a wall, not another stair run or sea.
-        for (let c = prev.e + 1; c < cur.s; c++) {
-          assertEquals(w.terrain[ty][c], 'cliff', `seed ${seed}: gap column ${c} (row ${ty}) is not a wall`);
-        }
+        // The higher room keeps its wall along the bottom edge (unless the
+        // band carries a door there).
+        const wallRow = up.bottoms[ui] + 1;
+        assert(
+          w.terrain[wallRow][c] === 'cliff' || w.terrain[wallRow][c] === 'stairs',
+          `seed ${seed}: no wall under bottom edge at (${c},${wallRow}): ${w.terrain[wallRow][c]}`,
+        );
       }
     }
   }
@@ -338,7 +192,6 @@ Deno.test('rooms — wall bands never stack vertically', () => {
       for (let tx = 0; tx < W; tx++) {
         const k = w.terrain[ty][tx];
         if (k !== 'cliff' && k !== 'stairs') continue;
-        // No cliff/stairs directly above or below.
         assert(
           w.terrain[ty - 1][tx] !== 'cliff' && w.terrain[ty - 1][tx] !== 'stairs',
           `seed ${seed}: wall stacked vertically at (${tx},${ty})`,
@@ -352,13 +205,150 @@ Deno.test('rooms — wall bands never stack vertically', () => {
   }
 });
 
+Deno.test('rooms — every terrain kind present covers a real area; worlds mix kinds', () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
+      const total: Record<string, number> = { rock: 0, grass: 0, beach: 0 };
+      for (const r of w.rooms) {
+        for (let i = 0; i < r.width; i++) total[r.type] += r.bottoms[i] - r.tops[i] + 1;
+      }
+      const present = (['rock', 'grass', 'beach'] as const).filter((t) => total[t] > 0);
+      assert(present.length >= 2, `seed ${seed}: expected at least 2 kinds, got ${present.join(',')}`);
+      for (const t of present) {
+        assert(total[t] >= 12, `seed ${seed}: ${t} covers only ${total[t]} cells`);
+      }
+    }
+  }
+});
+
+// ── Doors ──────────────────────────────────────────────────────────────────
+
+Deno.test('rooms — every touchable room pair is traversed, water-flanked, or crowded out', () => {
+  for (let seed = 1; seed <= 50; seed++) {
+    for (const w of [generateWorld(seed, W, H), generateWorld(seed, 16, 20)]) {
+      const stacks = columnStacks(w);
+      const pairs = new Set<string>();
+      for (let c = 1; c < W - 1; c++) {
+        for (let i = 0; i + 1 < stacks[c].length; i++) {
+          pairs.add(`${stacks[c][i]},${stacks[c][i + 1]}`);
+        }
+      }
+      assert(pairs.size >= 1, `seed ${seed}: expected at least one adjacent pair`);
+      for (const key of pairs) {
+        const [ui, li] = key.split(',').map(Number);
+        const u = w.rooms[ui];
+        const l = w.rooms[li];
+        // Columns where the pair actually touches (wall row exactly between).
+        const touch: number[] = [];
+        for (let i = 0; i < u.width; i++) {
+          const c = u.x + i;
+          const ci = c - l.x;
+          if (ci < 0 || ci >= l.width) continue;
+          if (l.tops[ci] === u.bottoms[i] + 2) touch.push(c);
+        }
+        if (!touch.length) continue;
+        const joined = w.stairs.some((s) =>
+          touch.some((c) => {
+            const row = u.bottoms[c - u.x] + 1;
+            return s.row === row && c >= s.start && c < s.start + s.width;
+          })
+        );
+        if (joined) continue;
+        const okFlank = (k: string): boolean => k !== 'sea' && k !== 'coast';
+        // Structural: every touching column's wall row is water-flanked, so
+        // no legal door exists there at all.
+        const structural = touch.every((c) => {
+          const row = u.bottoms[c - u.x] + 1;
+          return !okFlank(w.terrain[row][c - 1]) || !okFlank(w.terrain[row][c + 1]);
+        });
+        if (structural) continue;
+        // Crowded out: another stair run occupies the same wall row right
+        // next to the pair's columns and won the spot.
+        const rows = new Set(touch.map((c) => u.bottoms[c - u.x] + 1));
+        const crowded = [...rows].some((row) =>
+          w.stairs.some((s) =>
+            s.row === row &&
+            s.start + s.width >= Math.min(...touch) - 1 &&
+            s.start <= Math.max(...touch) + 1
+          )
+        );
+        assert(
+          crowded,
+          `seed ${seed}: pair u@${u.x}(w${u.width})${u.type}/l@${l.x}(w${l.width})${l.type} ` +
+            `touch=[${touch}] has no door, is not water-flanked, and is not crowded`,
+        );
+      }
+      // Doors land on two different rooms' floors: walkable above and below.
+      for (const s of w.stairs) {
+        for (let c = s.start; c < s.start + s.width; c++) {
+          const up = roomAt(w, c, s.row - 1);
+          const down = roomAt(w, c, s.row + 1);
+          assert(up !== null && down !== null, `seed ${seed}: stair (${s.start},${s.row}) lacks landings`);
+          assert(up !== down, `seed ${seed}: stair (${s.start},${s.row}) joins a room to itself`);
+        }
+      }
+    }
+  }
+});
+
+Deno.test('rooms — world.stairs matches the terrain', () => {
+  const w = world();
+  for (let ty = 0; ty < H; ty++) {
+    const runs = stairsRuns(w, ty);
+    // Placement order follows the door solver, not geography: sort by start.
+    const recorded = w.stairs.filter((s) => s.row === ty).sort((a, b) => a.start - b.start);
+    assertEquals(recorded.length, runs.length, `one world.stairs entry per terrain run (row ${ty})`);
+    for (const [i, [s, e]] of runs.entries()) {
+      const run = recorded[i];
+      assertEquals(run.start, s, `run ${i} start`);
+      assertEquals(run.width, e - s + 1, `run ${i} width`);
+    }
+  }
+});
+
+Deno.test('rooms — stair runs are 1-3 wide, never touch water, never flush together', () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    const w = generateWorld(seed, W, H);
+    for (let ty = 0; ty < H; ty++) {
+      const runs = stairsRuns(w, ty)
+        .map(([s, e]) => ({ s, e }))
+        .sort((a, b) => a.s - b.s);
+      for (const { s, e } of runs) {
+        assert(e - s + 1 >= 1 && e - s + 1 <= 3, `seed ${seed}: run width ${e - s + 1} (row ${ty})`);
+        assert(
+          w.terrain[ty][s - 1] !== 'sea' && w.terrain[ty][s - 1] !== 'coast',
+          `seed ${seed}: stairs run ${s}-${e} touches water on the left`,
+        );
+        assert(
+          w.terrain[ty][e + 1] !== 'sea' && w.terrain[ty][e + 1] !== 'coast',
+          `seed ${seed}: stairs run ${s}-${e} touches water on the right`,
+        );
+      }
+      for (let i = 1; i < runs.length; i++) {
+        const prev = runs[i - 1];
+        const cur = runs[i];
+        assert(
+          cur.s > prev.e + 1,
+          `seed ${seed}: stair runs ${prev.s}-${prev.e} and ${cur.s}-${cur.e} are adjacent (row ${ty})`,
+        );
+        // The gap between two doors is wall or floor — never open water
+        // (flanks were checked above) and of course not another run.
+        for (let c = prev.e + 1; c < cur.s; c++) {
+          const k = w.terrain[ty][c];
+          assert(k === 'cliff' || FLOOR.has(k), `seed ${seed}: gap column ${c} (row ${ty}) is ${k}`);
+        }
+      }
+    }
+  }
+});
+
 // ── Reachability and physics ───────────────────────────────────────────────
 
 Deno.test('rooms — every walkable tile is reachable through the stairs', () => {
   for (let seed = 1; seed <= 30; seed++) {
     const w = generateWorld(seed, W, H);
     const sx = w.rooms[0].x;
-    const sy = w.rooms[0].y;
+    const sy = w.rooms[0].tops[0];
     const seen = flood(w, sx, sy);
     for (let ty = 0; ty < H; ty++) {
       for (let tx = 0; tx < W; tx++) {
@@ -466,10 +456,6 @@ Deno.test('rooms — stairs have clear entryways (no solid footprint in the corr
     const w = generateWorld(seed, W, H);
     for (const stair of w.stairs) {
       const { start, width, row } = stair;
-      // Landing region one row above/below the band, spanning the stairs plus
-      // one column each side. Where there is land, a solid footprint must not
-      // make it unoccupiable (the band row's cliff margins are excluded — the
-      // walkable path is the stairs column itself).
       for (let ty = row - 1; ty <= row + 1; ty++) {
         for (let tx = start - 1; tx <= start + width; tx++) {
           if (ty < 0 || ty >= H || tx < 0 || tx >= W) continue;
@@ -488,7 +474,7 @@ Deno.test('rooms — stairs have clear entryways (no solid footprint in the corr
   }
 });
 
-// ── Variety across seeds ─────────────────────────────────────────────────
+// ── Variety across seeds ───────────────────────────────────────────────────
 
 Deno.test('rooms — different seeds produce different room layouts and coastlines', () => {
   const roomSets: Set<string>[] = [];
@@ -519,39 +505,81 @@ Deno.test('rooms — different seeds produce different room layouts and coastlin
   assert(coastVariety, 'different seeds should produce different coastlines');
 });
 
-Deno.test('rooms — some worlds multiply-join: a room bridges several rooms up or down', () => {
-  // Across seeds the per-level room counts vary (1..3), so at least sometimes a
-  // single room on one level should span two rooms on the level below.
-  let multiJoin = 0;
-  const seenCounts = new Set<number>();
-  const seenPartitions = new Set<string>();
-  for (let seed = 1; seed <= 60; seed++) {
+Deno.test('rooms — layouts break the single-ziggurat pattern (varied silhouettes)', () => {
+  // Across seeds: the crown terrace sometimes pulls in from the flanks (open
+  // sea beside the summit), and wall bands are usually stepped rather than one
+  // long straight run.
+  let pulledIn = 0;
+  let jagged = 0;
+  const roomCounts = new Set<number>();
+  const N = 40;
+  for (let seed = 1; seed <= N; seed++) {
     const w = generateWorld(seed, W, H);
-    seenCounts.add(w.rooms.length);
-    seenPartitions.add(w.rooms.map((r) => r.width).join(','));
-    const levels = levelsOf(w);
-    for (let z = 0; z < levels.length - 1; z++) {
-      for (const u of levels[z]) {
-        const overlaps = levels[z + 1].filter(
-          (l) => Math.max(u.x, l.x) <= Math.min(u.x + u.width, l.x + l.width) - 1,
-        );
-        if (overlaps.length >= 2) multiJoin++;
+    roomCounts.add(w.rooms.length);
+    // Crown = columns whose topmost floor appears near the shoreline.
+    const crownCols = new Set<number>();
+    for (let c = 1; c < W - 1; c++) {
+      for (let ty = 1; ty <= 3; ty++) {
+        if (FLOOR.has(w.terrain[ty][c])) {
+          crownCols.add(c);
+          break;
+        }
       }
     }
+    if (crownCols.size < W - 2) pulledIn++;
+    // Jagged: no single cliff row runs 8+ tiles without a break.
+    let longRun = false;
+    for (let ty = 0; ty < H; ty++) {
+      let run = 0;
+      for (let tx = 0; tx < W; tx++) {
+        if (w.terrain[ty][tx] === 'cliff') {
+          run++;
+          if (run >= 8) longRun = true;
+        } else run = 0;
+      }
+    }
+    if (!longRun) jagged++;
   }
-  assert(seenCounts.size >= 2, 'expected variation in room count');
-  assert(seenPartitions.size >= 3, 'expected variation in how levels split');
-  assert(multiJoin >= 3, 'expected some rooms to join multiple rooms on one level');
+  assert(pulledIn >= 8, `expected varied crown silhouettes, got ${pulledIn}/${N} pulled in`);
+  assert(jagged >= Math.floor(N * 0.8), `expected mostly stepped walls, got ${jagged}/${N} without long straight runs`);
+  assert(roomCounts.size >= 4, `expected varied room counts, got ${[...roomCounts].join(',')}`);
 });
 
-Deno.test('rooms — builds on smaller maps too (16x20 keeps 3 levels)', () => {
-  for (let seed = 1; seed <= 20; seed++) {
-    const w = generateWorld(seed, 16, 20);
-    const levels = levelsOf(w);
-    assert(levels.length === 3, `seed ${seed}: expected 3 levels on 16x20`);
-    for (const stair of w.stairs as StairRun[]) {
-      assert(WALKABLE.has(w.terrain[stair.row - 1][stair.start + Math.floor(stair.width / 2)]));
-      assert(WALKABLE.has(w.terrain[stair.row + 1][stair.start + Math.floor(stair.width / 2)]));
+Deno.test('rooms — some rooms bridge several rooms above or below (multiply-joined)', () => {
+  let multiJoin = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const w = generateWorld(seed, W, H);
+    for (const u of w.rooms) {
+      // Count distinct rooms directly above/below u across its columns.
+      const others = new Set<number>();
+      for (let i = 0; i < u.width; i++) {
+        const c = u.x + i;
+        const above = roomAt(w, c, u.tops[i] - 2);
+        const below = roomAt(w, c, u.bottoms[i] + 2);
+        for (const n of [above, below]) {
+          if (n && n !== u) others.add(w.rooms.indexOf(n));
+        }
+      }
+      if (others.size >= 2) multiJoin++;
+    }
+  }
+  assert(multiJoin >= 10, `expected many multiply-joined rooms, got ${multiJoin}`);
+});
+
+Deno.test('rooms — builds on smaller and larger maps too', () => {
+  for (const [mw, mh] of [[14, 20], [16, 20], [20, 28], [24, 32]] as const) {
+    for (let seed = 1; seed <= 10; seed++) {
+      const w = generateWorld(seed, mw, mh);
+      assert(w.rooms.length >= 1, `${mw}x${mh} seed ${seed}: no rooms`);
+      for (const stair of w.stairs as StairRun[]) {
+        assert(WALKABLE.has(w.terrain[stair.row - 1][stair.start + Math.floor(stair.width / 2)]));
+        assert(WALKABLE.has(w.terrain[stair.row + 1][stair.start + Math.floor(stair.width / 2)]));
+      }
+      // Sea margins hold on every size.
+      for (let tx = 0; tx < mw; tx++) {
+        assertEquals(w.terrain[0][tx], 'sea');
+        assertEquals(w.terrain[mh - 1][tx], 'sea');
+      }
     }
   }
 });
