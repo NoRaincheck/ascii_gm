@@ -139953,7 +139953,7 @@ function flatEdgeMask(world, tx, ty, kind) {
   ];
   for (const [dx, dy, bit] of neighbors) {
     const n = terrainAt(world, tx + dx, ty + dy);
-    const border = kind === "grass" ? n !== "grass" : kind === "beach" ? n === "coast" || n === "sea" : (
+    const border = kind === "grass" ? n !== "grass" : kind === "beach" ? n === "coast" || n === "sea" || n === "cliff" || n === "stairs" : (
       /* rock */
       n === "sea"
     );
@@ -140149,6 +140149,9 @@ function buildRooms(world, rand) {
         let b = ty;
         while (b + 1 <= bottomRow && isFloor(b + 1, c)) b++;
         if (b + 2 <= bottomRow && isFloor(b + 2, c)) terrain[b + 1][c] = "cliff";
+        else if (terrain[ty][c] !== "beach" && terrain[b + 1][c] === "sea") {
+          terrain[b + 1][c] = "cliff";
+        }
         ty = b + 2;
       }
     }
